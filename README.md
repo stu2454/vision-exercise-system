@@ -48,6 +48,20 @@ Recording writes a canonical pose stream to `recordings/<id>.jsonl`. Add
 `--record-video` to capture `recordings/<id>.mp4` alongside it. Video capture
 is always an explicit action and is never enabled by default.
 
+Record the camera placement with each take — it is an open experimental
+variable (Doc 03 §10), and a take that does not say where the camera was
+cannot join a view comparison later:
+
+```bash
+python -m src.app live --camera-view frontal_oblique
+```
+
+Recordings open only after the frame rate has been measured, which takes about
+ten frames. Cameras misreport their frame rate, and everything downstream —
+video playback speed, replay timestamps, velocity features — depends on
+getting it right. See the amendment in
+[ADR-011](docs/decisions/ADR-011-pose-stream-format-and-timestamps.md).
+
 `recordings/` and `models/` are gitignored. Identifiable participant video
 must never be committed.
 

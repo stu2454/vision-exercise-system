@@ -103,6 +103,7 @@ class PiCameraFrameSource(FrameSource):
             ) from exc
         self._start_perf = time.perf_counter()
         self._index = 0
+        self.reset_frame_rate()
 
     def _create_camera(self) -> Any:
         if self._camera_factory is not None:
@@ -146,6 +147,7 @@ class PiCameraFrameSource(FrameSource):
             index=self._index,
         )
         self._index += 1
+        self.observe_frame_rate(timestamp_ms)
         return frame
 
     @staticmethod
@@ -187,6 +189,7 @@ class PiCameraFrameSource(FrameSource):
             width=self._width,
             height=self._height,
             nominal_fps=self._fps,
+            measured_fps=self.measured_fps,
             extra={
                 "mirrored": self._mirror,
                 "picamera_format": self._format,

@@ -21,6 +21,7 @@ Interactive keys:
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import logging
 import platform
 import sys
@@ -143,6 +144,20 @@ def start_recording(
     directory = config.recording.resolved_directory()
     engine_info = engine.info()
 
+    # Always the measured rate where one exists. A webcam observed during
+    # development advertised 15 fps while delivering 29.4, which would have
+    # written video at half speed and put a 2x error into every velocity
+    # feature derived from replaying it.
+    fps = source_info.effective_fps or config.camera.fps
+    disagreement = source_info.rate_disagreement
+    if disagreement is not None and not 0.9 <= disagreement <= 1.1:
+        LOGGER.warning(
+            "camera_frame_rate_misreported claimed=%.1f measured=%.1f "
+            "-- using measured",
+            source_info.nominal_fps,
+            source_info.measured_fps,
+        )
+
     metadata = PoseStreamMetadata.create(
         recording_id=recording_id,
         pose_engine=engine_info.engine,
@@ -152,6 +167,7 @@ def start_recording(
         width=source_info.width,
         height=source_info.height,
         nominal_fps=source_info.nominal_fps,
+        measured_fps=source_info.measured_fps,
         source=source_info.to_dict(),
     )
     pose_writer = PoseStreamWriter(directory / f"{recording_id}.jsonl", metadata)
@@ -161,16 +177,26 @@ def start_recording(
     if record_video:
         video_recorder = VideoRecorder(
             directory / f"{recording_id}.mp4",
-            fps=source_info.nominal_fps or config.camera.fps,
+            fps=fps,
             fourcc=config.recording.video_fourcc,
         )
 
     LOGGER.info(
-        "recording_started id=%s video=%s directory=%s",
+        "recording_started id=%s video=%s fps=%.1f view=%s directory=%s",
         recording_id,
         record_video,
+        fps,
+        config.camera.view,
         directory,
     )
+    if config.camera.view == "unspecified":
+        # Camera placement is an experimental variable (Document 03 §10). A
+        # recording that does not say where the camera was cannot take part
+        # in a view comparison later.
+        LOGGER.warning(
+            "camera_view_unspecified -- set camera.view in configuration "
+            "or pass --camera-view so this recording can be compared later"
+        )
     return RecordingSession(recording_id, pose_writer, video_recorder)
 
 
@@ -198,8 +224,8 @@ def run_frame_loop(
             tests and for machines without a display.
         max_frames: Stop after this many frames, if given.
         record_video: Include video in any recording started.
-        record_from_start: Begin recording on the first frame rather than
-            waiting for a keypress.
+        record_from_start: Begin recording as soon as the frame rate has been
+            measured, rather than waiting for a keypress.
 
     Returns:
         The number of frames processed.
@@ -207,8 +233,7 @@ def run_frame_loop(
     assessor = PoseQualityAssessor(config.pose_quality)
     fps_meter = FpsMeter()
     inference_mean = RollingMean()
-    source_info = source.info()
-    source_label = source_info.description
+    source_label = source.info().description
     hud = DeveloperHud(mode=mode, source_label=source_label)
     recording: Optional[RecordingSession] = None
     processed = 0
@@ -221,8 +246,12 @@ def run_frame_loop(
             inference_mean.add(engine.last_inference_ms)
             processed += 1
 
-            if recording is None and record_from_start:
-                recording = start_recording(config, engine, source_info, record_video)
+            # `source.info()` is read at the moment a recording opens, never
+            # up front: the measured frame rate does not exist until frames
+            # have actually flowed, and it is what the recording is written
+            # with.
+            if recording is None and record_from_start and source.measured_fps:
+                recording = start_recording(config, engine, source.info(), record_video)
 
             if recording is not None:
                 recording.pose_writer.write(pose, report)
@@ -253,7 +282,7 @@ def run_frame_loop(
                 if key == KEY_RECORD:
                     if recording is None:
                         recording = start_recording(
-                            config, engine, source_info, record_video
+                            config, engine, source.info(), record_video
                         )
                         hud.message = f"recording {recording.recording_id}"
                     else:
@@ -462,6 +491,12 @@ def build_parser() -> argparse.ArgumentParser:
     live = subparsers.add_parser("live", help="Live webcam sandbox.")
     live.add_argument("--device", type=int, default=None, help="Camera index.")
     live.add_argument(
+        "--camera-view",
+        default=None,
+        help="Camera placement recorded with the take, e.g. frontal, "
+        "frontal_oblique, lateral. Overrides camera.view in configuration.",
+    )
+    live.add_argument(
         "--record", action="store_true", help="Start recording immediately."
     )
     live.add_argument(
@@ -520,6 +555,13 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     try:
         config = load_config(args.config)
+        camera_view = getattr(args, "camera_view", None)
+        if camera_view:
+            # Overriding per run beats editing configuration between takes,
+            # which is how a multi-view session ends up mislabelled.
+            config = dataclasses.replace(
+                config, camera=dataclasses.replace(config.camera, view=camera_view)
+            )
     except ConfigurationError as exc:
         print(f"[CONFIGURATION_INVALID] {exc}", file=sys.stderr)
         return 1

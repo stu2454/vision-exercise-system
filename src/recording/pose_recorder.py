@@ -65,7 +65,11 @@ class PoseStreamMetadata:
             position is an experimental variable and must be recorded
             (Document 03 §10).
         nominal_resolution: Capture resolution as "WIDTHxHEIGHT".
-        nominal_fps: Capture frame rate reported by the source.
+        nominal_fps: Capture frame rate the device or file claimed. Kept for
+            provenance; do not compute with it. Webcams misreport it.
+        measured_fps: Capture frame rate actually observed before recording
+            began, or None if it could not be measured. This is the rate any
+            paired video was written at, and the one to trust.
         source: Frame-source description from `FrameSourceInfo.to_dict()`.
         format_version: Version of this file format.
         notes: Free-text developer note about the take.
@@ -80,9 +84,17 @@ class PoseStreamMetadata:
     camera_view: str = "unspecified"
     nominal_resolution: str = ""
     nominal_fps: float = 0.0
+    measured_fps: Optional[float] = None
     source: dict[str, Any] = field(default_factory=dict)
     format_version: str = POSE_STREAM_FORMAT_VERSION
     notes: str = ""
+
+    @property
+    def effective_fps(self) -> float:
+        """The frame rate to compute with: measured where available."""
+        if self.measured_fps is not None and self.measured_fps > 0:
+            return self.measured_fps
+        return self.nominal_fps
 
     @classmethod
     def create(
@@ -95,6 +107,7 @@ class PoseStreamMetadata:
         width: int = 0,
         height: int = 0,
         nominal_fps: float = 0.0,
+        measured_fps: Optional[float] = None,
         source: Optional[dict[str, Any]] = None,
         notes: str = "",
     ) -> "PoseStreamMetadata":
@@ -109,6 +122,7 @@ class PoseStreamMetadata:
             camera_view=camera_view,
             nominal_resolution=f"{width}x{height}",
             nominal_fps=nominal_fps,
+            measured_fps=measured_fps,
             source=source or {},
             notes=notes,
         )
@@ -124,6 +138,7 @@ class PoseStreamMetadata:
             "camera_view": self.camera_view,
             "nominal_resolution": self.nominal_resolution,
             "nominal_fps": self.nominal_fps,
+            "measured_fps": self.measured_fps,
             "source": dict(self.source),
             "format_version": self.format_version,
             "notes": self.notes,
@@ -141,6 +156,12 @@ class PoseStreamMetadata:
             camera_view=str(data.get("camera_view", "unspecified")),
             nominal_resolution=str(data.get("nominal_resolution", "")),
             nominal_fps=float(data.get("nominal_fps", 0.0)),
+            # Absent in format 0.1 recordings, which predate rate measurement.
+            measured_fps=(
+                None
+                if data.get("measured_fps") is None
+                else float(data["measured_fps"])
+            ),
             source=dict(data.get("source", {})),
             format_version=str(data.get("format_version", "")),
             notes=str(data.get("notes", "")),

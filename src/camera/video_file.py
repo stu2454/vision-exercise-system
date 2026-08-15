@@ -77,6 +77,7 @@ class VideoFileFrameSource(FrameSource):
         self._index = 0
         self._last_timestamp_ms = -1.0
         self._playback_start_perf = time.perf_counter()
+        self.reset_frame_rate()
 
     def next_frame(self) -> Optional[Frame]:
         if self._capture is None:
@@ -99,6 +100,7 @@ class VideoFileFrameSource(FrameSource):
 
         frame = Frame(image=image, timestamp_ms=timestamp_ms, index=self._index)
         self._index += 1
+        self.observe_frame_rate(timestamp_ms)
         return frame
 
     def _timestamp_for(self, position_ms: float) -> float:
@@ -125,6 +127,7 @@ class VideoFileFrameSource(FrameSource):
             width=int(self._capture.get(cv2.CAP_PROP_FRAME_WIDTH)),
             height=int(self._capture.get(cv2.CAP_PROP_FRAME_HEIGHT)),
             nominal_fps=self._nominal_fps(),
+            measured_fps=self.measured_fps,
             extra={
                 "path": str(self._path),
                 "frame_count": int(self._capture.get(cv2.CAP_PROP_FRAME_COUNT)),

@@ -65,6 +65,7 @@ class WebcamFrameSource(FrameSource):
         self._capture = capture
         self._start_perf = time.perf_counter()
         self._index = 0
+        self.reset_frame_rate()
 
     def next_frame(self) -> Optional[Frame]:
         if self._capture is None:
@@ -77,6 +78,7 @@ class WebcamFrameSource(FrameSource):
             image = cv2.flip(image, 1)
         frame = Frame(image=image, timestamp_ms=timestamp_ms, index=self._index)
         self._index += 1
+        self.observe_frame_rate(timestamp_ms)
         return frame
 
     def stop(self) -> None:
@@ -87,13 +89,14 @@ class WebcamFrameSource(FrameSource):
     def info(self) -> FrameSourceInfo:
         if self._capture is None:
             raise FrameSourceError("CAMERA_UNAVAILABLE", "Camera was not started.")
-        actual_fps = float(self._capture.get(cv2.CAP_PROP_FPS)) or self._requested_fps
+        reported_fps = float(self._capture.get(cv2.CAP_PROP_FPS)) or self._requested_fps
         return FrameSourceInfo(
             kind="webcam",
             description=f"webcam:{self._device_index}",
             width=int(self._capture.get(cv2.CAP_PROP_FRAME_WIDTH)),
             height=int(self._capture.get(cv2.CAP_PROP_FRAME_HEIGHT)),
-            nominal_fps=actual_fps,
+            nominal_fps=reported_fps,
+            measured_fps=self.measured_fps,
             extra={
                 "device_index": self._device_index,
                 "mirrored": self._mirror,

@@ -80,6 +80,54 @@ platform.
 
 ---
 
+---
+
+## Amendment, 16 August 2026 — the file frame rate must be measured
+
+Decision 2 makes replayed video timestamps depend entirely on the file's
+frame rate. That is only safe if the frame rate written into the file is
+correct, and initially it was not.
+
+A webcam used for development advertised `CAP_PROP_FPS = 15.0` while actually
+delivering 29.4 fps. The claimed figure was written into the pose-stream
+metadata and used as the frame rate of the recorded video, so:
+
+- recorded video played at half speed;
+- replaying that video produced timestamps twice as far apart as reality,
+  putting a silent 2x error into every velocity feature derived from it.
+
+The same camera reported 30.0 fps in a later session, so the claim is not even
+consistent between runs on one device.
+
+### Decision
+
+Frame sources measure their own delivered rate (`FrameRateTracker`), and the
+measured rate is always preferred over the claimed one. Recordings open only
+once a rate has been measured, and store both figures:
+
+```json
+{"nominal_fps": 15.0, "measured_fps": 29.4}
+```
+
+`nominal_fps` is retained as provenance. Nothing computes with it.
+
+Verified on the camera concerned: recorded container rate now within 0.7% of
+truth, and replayed video duration within 0.7% of the live segment it was
+recorded from. Trusting the claim would have given 100% error.
+
+### Consequences
+
+- Pose-stream format version becomes 0.2. Readers tolerate a missing
+  `measured_fps`, so 0.1 recordings still replay — they simply carry no
+  trustworthy rate, and anything computed from their frame rate should be
+  treated as suspect.
+- A recording started from the first frame is delayed by roughly ten frames
+  while the rate is measured.
+- Pose streams were never affected: they carry per-frame measured timestamps
+  and are self-describing.
+
+---
+
 ## Conditions for revisiting
 
 - Pose-stream recordings become large enough that JSON Lines is measurably

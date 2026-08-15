@@ -4,7 +4,15 @@ version = "0.1.0"
 description = "Camera-based home exercise delivery and monitoring prototype"
 requires-python = ">=3.11,<3.13"
 dependencies = [
-    "mediapipe>=0.10.14,<0.11",
+    # Pinned exactly, because aarch64 wheel availability is erratic and the
+    # Raspberry Pi 5 is a target platform. MediaPipe published Linux aarch64
+    # wheels up to 0.10.18, dropped them for 0.10.21 through 0.10.35, and
+    # restored them in 1.0. 0.10.18 is the newest release with wheels for
+    # both linux aarch64 and macOS arm64, so one version covers the Pi and
+    # the development machine. MediaPipe 1.0.1 aborts on macOS arm64 inside
+    # its Metal helper, so it is not a usable alternative today.
+    # See docs/decisions/ADR-012-raspberry-pi-deployment.md.
+    "mediapipe==0.10.18",
     "opencv-python>=4.9,<5",
     "numpy>=1.26,<2",
     "pyyaml>=6,<7",

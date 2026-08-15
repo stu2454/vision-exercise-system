@@ -51,6 +51,26 @@ is always an explicit action and is never enabled by default.
 `recordings/` and `models/` are gitignored. Identifiable participant video
 must never be committed.
 
+## Raspberry Pi 5
+
+See [docs/raspberry-pi-setup.md](docs/raspberry-pi-setup.md) for the runbook and
+[ADR-012](docs/decisions/ADR-012-raspberry-pi-deployment.md) for the reasoning.
+
+Three things differ from a development machine:
+
+- the venv needs `--system-site-packages`, because `picamera2` is an apt
+  package and cannot be pip-installed;
+- `camera.source` must be `picamera` for a Camera Module — OpenCV cannot open
+  a CSI camera on Bookworm;
+- MediaPipe is pinned to `0.10.18`, the newest release with an aarch64 wheel.
+
+The AI HAT is not used: it cannot accelerate MediaPipe, so pose runs on the CPU
+regardless. Measure before deciding otherwise:
+
+```bash
+python tools/benchmark.py --synthetic --frames 120
+```
+
 ## Tests
 
 ```bash

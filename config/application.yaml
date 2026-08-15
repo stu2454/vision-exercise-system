@@ -8,12 +8,20 @@ application:
   log_level: INFO
 
 camera:
+  # webcam   USB camera via OpenCV (development machines)
+  # picamera Raspberry Pi Camera Module via picamera2
+  # A CSI camera cannot be opened by OpenCV on Pi OS Bookworm, so a Pi with
+  # a Camera Module must set this to picamera. See docs/raspberry-pi-setup.md.
+  source: webcam
   device_index: 0
   width: 1280
   height: 720
   fps: 30
   # Show the participant a mirror image. Applied before pose estimation.
   mirror: true
+  # picamera only. If captured colour looks swapped, try BGR888 — the
+  # libcamera format names are reversed relative to numpy channel order.
+  picamera_format: RGB888
   # Camera placement is an open experimental variable (Document 03 §10).
   # Record what was actually used: frontal | frontal_oblique | lateral.
   view: unspecified

@@ -28,6 +28,9 @@ class ConfigurationError(RuntimeError):
     code = "CONFIGURATION_INVALID"
 
 
+CAMERA_SOURCES = ("webcam", "picamera")
+
+
 @dataclass(frozen=True)
 class CameraConfig:
     """Camera capture settings and the camera-placement metadata.
@@ -35,16 +38,35 @@ class CameraConfig:
     Camera placement is an unresolved experimental variable (Document 03 §10),
     so `view`, `nominal_height_cm` and `nominal_distance_m` are recorded with
     every recording rather than assumed.
+
+    Attributes:
+        source: "webcam" for a USB camera through OpenCV, or "picamera" for a
+            Raspberry Pi Camera Module through picamera2. A CSI camera cannot
+            be opened by OpenCV on Pi OS Bookworm, so this is a real choice
+            rather than a detail.
+        device_index: OpenCV camera index. Ignored when source is "picamera".
+        picamera_format: libcamera stream format. Ignored for "webcam". See
+            `src.camera.picamera.DEFAULT_PICAMERA_FORMAT` for why the naming
+            is counter-intuitive.
     """
 
+    source: str = "webcam"
     device_index: int = 0
     width: int = 1280
     height: int = 720
     fps: float = 30.0
     mirror: bool = True
+    picamera_format: str = "RGB888"
     view: str = "unspecified"
     nominal_height_cm: Optional[float] = None
     nominal_distance_m: Optional[float] = None
+
+    def __post_init__(self) -> None:
+        if self.source not in CAMERA_SOURCES:
+            raise ConfigurationError(
+                f"Unknown camera source '{self.source}'. "
+                f"Supported: {', '.join(CAMERA_SOURCES)}."
+            )
 
 
 @dataclass(frozen=True)

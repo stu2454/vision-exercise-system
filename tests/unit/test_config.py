@@ -103,6 +103,28 @@ class TestParsing:
         assert load_config(path) == AppConfig()
 
 
+class TestCameraSource:
+    def test_defaults_to_the_usb_webcam(self):
+        assert AppConfig().camera.source == "webcam"
+
+    def test_the_pi_camera_source_is_accepted(self, tmp_path):
+        path = tmp_path / "application.yaml"
+        path.write_text(
+            "camera:\n  source: picamera\n  picamera_format: BGR888\n", encoding="utf-8"
+        )
+        config = load_config(path)
+        assert config.camera.source == "picamera"
+        assert config.camera.picamera_format == "BGR888"
+
+    def test_an_unknown_source_is_rejected(self, tmp_path):
+        # A typo here would otherwise surface on the Pi as a camera that
+        # silently opens the wrong device, or none at all.
+        path = tmp_path / "application.yaml"
+        path.write_text("camera:\n  source: picamera2\n", encoding="utf-8")
+        with pytest.raises(ConfigurationError, match="Unknown camera source"):
+            load_config(path)
+
+
 class TestPathResolution:
     def test_model_path_resolves_against_the_repository_root(self):
         config = load_config(DEFAULT_CONFIG_PATH)

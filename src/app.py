@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import platform
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -78,6 +79,39 @@ class RecordingSession:
         if self.video_recorder is not None:
             parts.append(f"video {self.video_recorder.frame_count} frames")
         return f"saved {self.recording_id}: {', '.join(parts)}"
+
+
+def build_frame_source(
+    config: AppConfig, device_index: Optional[int] = None
+) -> FrameSource:
+    """Create the configured live camera source.
+
+    The only place a camera implementation is chosen. Everything downstream
+    receives a FrameSource and cannot tell a USB webcam from a Pi Camera
+    Module, which is what lets the same code run on both.
+    """
+    if config.camera.source == "picamera":
+        # Imported here rather than at module scope: the module itself is
+        # import-safe anywhere, but keeping the import local makes it obvious
+        # that this path is only taken when configured.
+        from src.camera.picamera import PiCameraFrameSource
+
+        return PiCameraFrameSource(
+            width=config.camera.width,
+            height=config.camera.height,
+            fps=config.camera.fps,
+            mirror=config.camera.mirror,
+            picamera_format=config.camera.picamera_format,
+        )
+    return WebcamFrameSource(
+        device_index=(
+            device_index if device_index is not None else config.camera.device_index
+        ),
+        width=config.camera.width,
+        height=config.camera.height,
+        fps=config.camera.fps,
+        mirror=config.camera.mirror,
+    )
 
 
 def build_pose_engine(config: AppConfig) -> PoseEngine:
@@ -242,13 +276,7 @@ def run_frame_loop(
 
 def command_live(args: argparse.Namespace, config: AppConfig) -> int:
     """Live webcam sandbox (Builds 0-3)."""
-    source = WebcamFrameSource(
-        device_index=args.device if args.device is not None else config.camera.device_index,
-        width=config.camera.width,
-        height=config.camera.height,
-        fps=config.camera.fps,
-        mirror=config.camera.mirror,
-    )
+    source = build_frame_source(config, device_index=args.device)
     engine = build_pose_engine(config)
     with source, engine:
         info = source.info()
@@ -353,6 +381,10 @@ def command_check(args: argparse.Namespace, config: AppConfig) -> int:
     failure names which one is at fault rather than only that something is.
     """
     print(f"Vision Exercise System {APPLICATION_VERSION}")
+    print(
+        f"  platform        {platform.system()} {platform.machine()} "
+        f"python {platform.python_version()}"
+    )
     ok = True
 
     model_path = config.pose.resolved_model_path()
@@ -375,15 +407,10 @@ def command_check(args: argparse.Namespace, config: AppConfig) -> int:
             print(f"  pose engine     FAILED  {exc}")
 
     if args.skip_camera:
-        print("  camera          SKIPPED")
+        print(f"  camera          SKIPPED  (configured source: {config.camera.source})")
     else:
         try:
-            with WebcamFrameSource(
-                device_index=config.camera.device_index,
-                width=config.camera.width,
-                height=config.camera.height,
-                fps=config.camera.fps,
-            ) as camera:
+            with build_frame_source(config) as camera:
                 frame = camera.next_frame()
                 info = camera.info()
             if frame is None:

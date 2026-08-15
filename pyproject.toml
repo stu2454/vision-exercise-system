@@ -1,0 +1,35 @@
+[project]
+name = "vision-exercise-system"
+version = "0.1.0"
+description = "Camera-based home exercise delivery and monitoring prototype"
+requires-python = ">=3.11,<3.13"
+dependencies = [
+    "mediapipe>=0.10.14,<0.11",
+    "opencv-python>=4.9,<5",
+    "numpy>=1.26,<2",
+    "pyyaml>=6,<7",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8,<9"]
+
+[project.scripts]
+vision-exercise = "src.app:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+# The repository structure in Document 03 §47 puts application code under a
+# top-level `src` package rather than in a src-layout, so it is named here
+# explicitly; automatic discovery would otherwise also try to package
+# `config`, `docs`, `tests` and `tools`.
+include = ["src*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+markers = [
+    "integration: exercises the real pose engine; slower than unit tests",
+]

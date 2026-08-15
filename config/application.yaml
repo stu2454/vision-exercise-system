@@ -1,0 +1,62 @@
+# Vision Exercise System — application configuration
+#
+# Engineering parameters only. These are not clinical thresholds, and the
+# values below are starting points to be established experimentally
+# (Document 03 §33, CLAUDE.md §24, §37).
+
+application:
+  log_level: INFO
+
+camera:
+  device_index: 0
+  width: 1280
+  height: 720
+  fps: 30
+  # Show the participant a mirror image. Applied before pose estimation.
+  mirror: true
+  # Camera placement is an open experimental variable (Document 03 §10).
+  # Record what was actually used: frontal | frontal_oblique | lateral.
+  view: unspecified
+  nominal_height_cm: null
+  nominal_distance_m: null
+
+pose:
+  engine: mediapipe
+  # pose_landmarker_lite.task is the default for interactive frame rates.
+  # pose_landmarker_full.task is more accurate and slower; compare them on
+  # the same recording rather than by impression.
+  model_path: models/pose_landmarker_lite.task
+  min_detection_confidence: 0.5
+  min_presence_confidence: 0.5
+  min_tracking_confidence: 0.5
+
+pose_quality:
+  # Landmarks that must be usable for GOOD quality. Individual exercises
+  # will override this from their own configuration in later builds.
+  required_landmarks:
+    - left_hip
+    - right_hip
+    - left_knee
+    - right_knee
+    - left_shoulder
+    - right_shoulder
+    - left_ankle
+    - right_ankle
+  good_confidence: 0.60
+  minimum_confidence: 0.30
+  person_confidence_floor: 0.30
+  # Normalised distance from an image edge treated as clipping.
+  edge_margin: 0.02
+  # Landmark speed above which motion is treated as tracking noise,
+  # in image-normalised units per second.
+  max_jump_normalised_per_second: 3.0
+  # Quality is allowed to worsen quickly but must improve steadily, so a
+  # single good frame cannot restart scoring after tracking loss.
+  frames_to_worsen: 2
+  frames_to_improve: 5
+
+recording:
+  directory: recordings
+  # Video recording is always an explicit developer action (CLAUDE.md §28).
+  record_video: false
+  video_fourcc: mp4v

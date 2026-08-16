@@ -49,6 +49,7 @@ from src.movement.features import (
     FeatureExtractor,
 )
 from src.movement.filtering import PoseFilter
+from src.movement.gestures import ArmRaiseConfig, ArmRaiseDetector
 from src.pose.adapters.mediapipe_adapter import MediaPipePoseEngine
 from src.pose.base import PoseEngine, PoseEngineError
 from src.pose.quality import PoseQualityAssessor
@@ -235,6 +236,9 @@ def run_frame_loop(
     record_from_start: bool = False,
     setup_mode: bool = False,
     exercise: Optional[SitToStandEngine] = None,
+    start_gesture: Optional[ArmRaiseDetector] = None,
+    stop_gesture: Optional[ArmRaiseDetector] = None,
+    settle_ms: float = 3000.0,
 ) -> int:
     """Run the sandbox loop over any frame source.
 
@@ -265,6 +269,11 @@ def run_frame_loop(
     hud = DeveloperHud(mode=mode, source_label=source_label, setup_mode=setup_mode)
     recording: Optional[RecordingSession] = None
     processed = 0
+    # Nothing is scored until the participant signals readiness. Starting the
+    # software and then walking into position puts the walk itself into the
+    # calibration data, which is what made a live session count nothing.
+    awaiting_start = exercise is not None and start_gesture is not None
+    settle_until_ms: Optional[float] = None
 
     try:
         for frame in source.frames():
@@ -276,7 +285,39 @@ def run_frame_loop(
             # crossed by noise (CLAUDE.md §8).
             features = extractor.update(pose_filter.apply(pose))
 
-            if exercise is not None:
+            if awaiting_start and start_gesture is not None:
+                gesture = start_gesture.update(pose)
+                if settle_until_ms is None:
+                    hud.prompt = "RAISE AN ARM TO START"
+                    hud.prompt_progress = gesture.progress
+                    if gesture.triggered:
+                        settle_until_ms = frame.timestamp_ms + settle_ms
+                        LOGGER.info("start_gesture_detected side=%s", gesture.side)
+                else:
+                    remaining = (settle_until_ms - frame.timestamp_ms) / 1000.0
+                    hud.prompt = f"STARTING IN {max(0, int(remaining) + 1)}"
+                    hud.prompt_progress = 0.0
+                    if frame.timestamp_ms >= settle_until_ms:
+                        # Reinitialised here so no frame from before the
+                        # signal reaches calibration.
+                        exercise.initialise()
+                        awaiting_start = False
+                        hud.prompt = ""
+                        LOGGER.info("exercise_started")
+
+            if stop_gesture is not None and not awaiting_start:
+                finish = stop_gesture.update(pose)
+                if finish.raised:
+                    hud.prompt = "RAISE BOTH ARMS TO FINISH"
+                    hud.prompt_progress = finish.progress
+                elif hud.prompt.startswith("RAISE BOTH"):
+                    hud.prompt = ""
+                    hud.prompt_progress = 0.0
+                if finish.triggered:
+                    LOGGER.info("stop_gesture_detected")
+                    break
+
+            if exercise is not None and not awaiting_start:
                 for event in exercise.update(pose, features, report):
                     if event.event in _LOGGED_EVENTS:
                         LOGGER.info(
@@ -404,9 +445,19 @@ def command_exercise(args: argparse.Namespace, config: AppConfig) -> int:
     engine = build_pose_engine(config)
     exercise = SitToStandEngine(sts_config)
     exercise.initialise()
+    start_gesture = None if args.no_start_gesture else ArmRaiseDetector()
+    stop_gesture = (
+        None
+        if args.no_start_gesture
+        else ArmRaiseDetector(ArmRaiseConfig(hold_ms=1500.0), required_arms=2)
+    )
 
     with source, engine:
         print("STS-001 Sit to Stand.")
+        if start_gesture is not None:
+            print("Stand where you will exercise, then raise ONE arm bent at the")
+            print("elbow to begin. Nothing is measured until you do.")
+            print("Raise BOTH arms to finish, without going near the keyboard.")
         print("The first sit-to-stand calibrates and is not counted.")
         print("Press r to record, q to finish.")
         processed = run_frame_loop(
@@ -419,6 +470,9 @@ def command_exercise(args: argparse.Namespace, config: AppConfig) -> int:
             record_video=args.record_video,
             record_from_start=args.record,
             exercise=exercise,
+            start_gesture=start_gesture,
+            stop_gesture=stop_gesture,
+            settle_ms=args.settle_seconds * 1000.0,
         )
     exercise.stop()
     _print_result(exercise.result(), args.json)
@@ -720,6 +774,17 @@ def build_parser() -> argparse.ArgumentParser:
     )
     exercise.add_argument(
         "--record-video", action="store_true", help="Also record video."
+    )
+    exercise.add_argument(
+        "--no-start-gesture",
+        action="store_true",
+        help="Begin immediately instead of waiting for a raised arm.",
+    )
+    exercise.add_argument(
+        "--settle-seconds",
+        type=float,
+        default=3.0,
+        help="Pause between the start signal and the first measurement.",
     )
     exercise.add_argument("--json", action="store_true", help="Print the result as JSON.")
     exercise.add_argument("--headless", action="store_true", help="Do not open a window.")

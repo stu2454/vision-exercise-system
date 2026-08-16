@@ -73,6 +73,8 @@ class DeveloperHud:
     repetitions: Optional[int] = None
     target_repetitions: Optional[int] = None
     calibrated: bool = False
+    prompt: str = ""
+    prompt_progress: float = 0.0
     message: str = ""
 
 
@@ -140,19 +142,24 @@ def _format_optional(value: Optional[float], suffix: str, digits: int = 1) -> st
     return "—" if value is None else f"{value:.{digits}f}{suffix}"
 
 
-def draw_framing_banner(image: np.ndarray, hint: FramingHint) -> None:
-    """Draw a large framing instruction across the image, in place.
+def draw_banner(
+    image: np.ndarray, text: str, colour: tuple[int, int, int], progress: float = 0.0
+) -> None:
+    """Draw a large instruction across the image, in place.
 
     Sized to be read from several metres away. Someone setting up a
     sit-to-stand recording is standing well back from the screen, and the
     ordinary HUD text is unreadable at that distance — which is how two
     development recordings came to be made with the legs out of frame.
+
+    Args:
+        progress: 0.0 to 1.0. When above zero a bar is drawn beneath the
+            text, so a gesture being held shows that it is registering
+            rather than leaving the participant guessing.
     """
     height, width = image.shape[:2]
-    colour = _FRAMING_GOOD if hint.is_good else _FRAMING_BAD
     scale = width / 640.0 * 1.6
     thickness = max(2, int(scale * 2))
-    text = hint.text
 
     (text_width, text_height), _ = cv2.getTextSize(text, _FONT, scale, thickness)
     x = max(10, (width - text_width) // 2)
@@ -167,8 +174,30 @@ def draw_framing_banner(image: np.ndarray, hint: FramingHint) -> None:
     cv2.putText(image, text, (x, y), _FONT, scale, (0, 0, 0), thickness + 3, cv2.LINE_AA)
     cv2.putText(image, text, (x, y), _FONT, scale, colour, thickness, cv2.LINE_AA)
 
+    if progress > 0:
+        bar_width = int(width * 0.5)
+        bar_left = (width - bar_width) // 2
+        bar_top = y + int(18 * scale / 1.6)
+        bar_height = max(6, int(10 * scale / 1.6))
+        cv2.rectangle(
+            image, (bar_left, bar_top), (bar_left + bar_width, bar_top + bar_height),
+            (70, 70, 70), -1,
+        )
+        cv2.rectangle(
+            image,
+            (bar_left, bar_top),
+            (bar_left + int(bar_width * min(1.0, progress)), bar_top + bar_height),
+            colour,
+            -1,
+        )
+
     # A border in the same colour is legible even when the words are not.
     cv2.rectangle(image, (2, 2), (width - 3, height - 3), colour, max(3, thickness))
+
+
+def draw_framing_banner(image: np.ndarray, hint: FramingHint) -> None:
+    """Draw the framing instruction for `hint`."""
+    draw_banner(image, hint.text, _FRAMING_GOOD if hint.is_good else _FRAMING_BAD)
 
 
 def draw_developer_overlay(
@@ -282,7 +311,11 @@ def draw_developer_overlay(
     if hud.message:
         lines.append((hud.message[:44], (40, 190, 240)))
 
-    if framing is not None and (hud.setup_mode or not framing.is_good):
+    if hud.prompt:
+        # A prompt is an instruction the participant is being asked to act
+        # on, so it takes precedence over a framing warning.
+        draw_banner(annotated, hud.prompt, (40, 200, 240), hud.prompt_progress)
+    elif framing is not None and (hud.setup_mode or not framing.is_good):
         draw_framing_banner(annotated, framing)
 
     _draw_text_block(annotated, lines)

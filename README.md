@@ -39,10 +39,27 @@ python -m src.app replay-pose FILE.jsonl      # replay a pose stream, no inferen
 python -m src.app check                       # verify the local setup
 ```
 
-`exercise` counts sit-to-stand repetitions live. Calibration comes from the
-participant's own movement, so **the first sit-to-stand establishes the scale
-and is not counted** — stand and sit once before the repetitions you want
-scored.
+`exercise` counts sit-to-stand repetitions live, and is driven entirely by
+gesture so nobody has to walk back to the keyboard:
+
+```text
+raise ONE arm, bent at the elbow    begin (3 second settle, then measuring)
+raise BOTH arms                     finish
+```
+
+Nothing is measured until the start signal. That matters: calibration is
+participant-relative and only valid while they stay at a fixed distance, so
+starting the software and then walking into position puts the walk itself into
+the calibration data — which made one live session count nothing at all.
+
+Either arm works for starting. Frames are mirrored before pose estimation, so
+canonical `right_*` landmarks are the participant's left arm, and an
+instruction naming a side would be wrong half the time.
+
+Calibration comes from the participant's own movement, so **the first
+sit-to-stand establishes the scale and is not counted** — stand and sit once
+before the repetitions you want scored. Use `--no-start-gesture` to begin
+immediately instead.
 
 `score` replays a recorded pose stream through the same engine with no pose
 inference, so the same recording always gives the same result. Pass `--expect`

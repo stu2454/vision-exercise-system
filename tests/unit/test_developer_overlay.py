@@ -91,6 +91,57 @@ class TestOverlayRobustness:
         assert not np.array_equal(with_skeleton, without_skeleton)
 
 
+class TestFramingBanner:
+    def test_the_banner_appears_when_framing_is_wrong(self):
+        from src.pose.quality import DEFAULT_REQUIRED_LANDMARKS
+        from src.ui.framing import assess_framing
+
+        pose = make_pose()
+        bad = assess_framing(pose, DEFAULT_REQUIRED_LANDMARKS)
+        assert not bad.is_good, "fixture pose is not fully framed"
+        without = draw_developer_overlay(blank_image(), pose, None, DeveloperHud())
+        with_banner = draw_developer_overlay(
+            blank_image(), pose, None, DeveloperHud(), framing=bad
+        )
+        assert not np.array_equal(without, with_banner)
+
+    def test_the_banner_is_hidden_when_framing_is_good_outside_setup(self):
+        from src.ui.framing import Framing, FramingHint
+
+        good = FramingHint(status=Framing.GOOD, body_fill=0.8)
+        plain = draw_developer_overlay(blank_image(), make_pose(), None, DeveloperHud())
+        shown = draw_developer_overlay(
+            blank_image(), make_pose(), None, DeveloperHud(), framing=good
+        )
+        assert np.array_equal(plain, shown)
+
+    def test_setup_mode_shows_the_banner_even_when_good(self):
+        # During setup the participant needs positive confirmation, not the
+        # absence of a warning.
+        from src.ui.framing import Framing, FramingHint
+
+        good = FramingHint(status=Framing.GOOD, body_fill=0.8)
+        plain = draw_developer_overlay(blank_image(), make_pose(), None, DeveloperHud())
+        setup = draw_developer_overlay(
+            blank_image(), make_pose(), None, DeveloperHud(setup_mode=True), framing=good
+        )
+        assert not np.array_equal(plain, setup)
+
+    def test_the_banner_does_not_mutate_the_source_frame(self):
+        from src.ui.framing import Framing, FramingHint
+
+        image = blank_image()
+        original = image.copy()
+        draw_developer_overlay(
+            image,
+            make_pose(),
+            None,
+            DeveloperHud(setup_mode=True),
+            framing=FramingHint(status=Framing.MOVE_BACK),
+        )
+        assert np.array_equal(image, original)
+
+
 class TestConfidenceColour:
     def test_colour_changes_with_confidence_band(self):
         assert confidence_colour(0.9) != confidence_colour(0.45)

@@ -48,6 +48,7 @@ from src.recording.video_recorder import VideoRecorder, VideoRecorderError
 from src.replay.pose_replay import PoseStreamError, PoseStreamSource
 from src.timing import FpsMeter, RollingMean
 from src.ui.developer import DeveloperHud, draw_developer_overlay
+from src.ui.framing import assess_framing
 from src.version import APPLICATION_VERSION
 
 LOGGER = logging.getLogger("vision_exercise")
@@ -209,6 +210,7 @@ def run_frame_loop(
     max_frames: Optional[int] = None,
     record_video: bool = False,
     record_from_start: bool = False,
+    setup_mode: bool = False,
 ) -> int:
     """Run the sandbox loop over any frame source.
 
@@ -234,7 +236,7 @@ def run_frame_loop(
     fps_meter = FpsMeter()
     inference_mean = RollingMean()
     source_label = source.info().description
-    hud = DeveloperHud(mode=mode, source_label=source_label)
+    hud = DeveloperHud(mode=mode, source_label=source_label, setup_mode=setup_mode)
     recording: Optional[RecordingSession] = None
     processed = 0
 
@@ -272,7 +274,10 @@ def run_frame_loop(
             )
 
             if not headless:
-                annotated = draw_developer_overlay(frame.image, pose, report, hud)
+                hint = assess_framing(pose, config.pose_quality.required_landmarks)
+                annotated = draw_developer_overlay(
+                    frame.image, pose, report, hud, framing=hint
+                )
                 cv2.imshow(WINDOW_NAME, annotated)
                 key = cv2.waitKey(1) & 0xFF
                 if key in KEY_QUIT:
@@ -327,6 +332,34 @@ def command_live(args: argparse.Namespace, config: AppConfig) -> int:
             record_from_start=args.record,
         )
     LOGGER.info("live_session_finished frames=%d", processed)
+    return 0
+
+
+def command_setup(args: argparse.Namespace, config: AppConfig) -> int:
+    """Camera framing check, with no recording.
+
+    Stand where you intend to exercise and adjust the camera until the banner
+    reads GOOD POSITION, sitting and standing. The banner is sized to be read
+    from across a room, which the ordinary HUD text is not.
+    """
+    source = build_frame_source(config, device_index=args.device)
+    engine = build_pose_engine(config)
+    with source, engine:
+        print("Framing check. Stand where you will exercise, then sit and stand.")
+        print("Adjust the camera until the banner reads GOOD POSITION for both.")
+        print("Press q to finish.")
+        processed = run_frame_loop(
+            source,
+            engine,
+            config,
+            mode="SETUP",
+            headless=args.headless,
+            max_frames=args.max_frames,
+            record_video=False,
+            record_from_start=False,
+            setup_mode=True,
+        )
+    LOGGER.info("setup_finished frames=%d", processed)
     return 0
 
 
@@ -507,6 +540,16 @@ def build_parser() -> argparse.ArgumentParser:
     live.add_argument("--headless", action="store_true", help="Do not open a window.")
     live.add_argument("--max-frames", type=int, default=None, help="Stop after N frames.")
     live.set_defaults(handler=command_live)
+
+    setup = subparsers.add_parser(
+        "setup", help="Camera framing check before recording. No recording made."
+    )
+    setup.add_argument("--device", type=int, default=None, help="Camera index.")
+    setup.add_argument("--headless", action="store_true", help="Do not open a window.")
+    setup.add_argument(
+        "--max-frames", type=int, default=None, help="Stop after N frames."
+    )
+    setup.set_defaults(handler=command_setup)
 
     replay_video = subparsers.add_parser(
         "replay-video", help="Re-run pose inference over a recorded video."

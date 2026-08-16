@@ -19,8 +19,12 @@ import numpy as np
 
 from src.pose.models import CANONICAL_CONNECTIONS, PoseFrame
 from src.pose.quality import PoseQualityReport, PoseQualityStatus
+from src.ui.framing import FramingHint
 
 _FONT = cv2.FONT_HERSHEY_SIMPLEX
+
+_FRAMING_GOOD = (90, 210, 90)
+_FRAMING_BAD = (60, 120, 250)
 
 _STATUS_COLOURS: dict[PoseQualityStatus, tuple[int, int, int]] = {
     PoseQualityStatus.GOOD: (80, 200, 80),
@@ -63,6 +67,7 @@ class DeveloperHud:
     recording_id: str = ""
     recorded_frames: int = 0
     show_skeleton: bool = True
+    setup_mode: bool = False
     message: str = ""
 
 
@@ -130,16 +135,52 @@ def _format_optional(value: Optional[float], suffix: str, digits: int = 1) -> st
     return "—" if value is None else f"{value:.{digits}f}{suffix}"
 
 
+def draw_framing_banner(image: np.ndarray, hint: FramingHint) -> None:
+    """Draw a large framing instruction across the image, in place.
+
+    Sized to be read from several metres away. Someone setting up a
+    sit-to-stand recording is standing well back from the screen, and the
+    ordinary HUD text is unreadable at that distance — which is how two
+    development recordings came to be made with the legs out of frame.
+    """
+    height, width = image.shape[:2]
+    colour = _FRAMING_GOOD if hint.is_good else _FRAMING_BAD
+    scale = width / 640.0 * 1.6
+    thickness = max(2, int(scale * 2))
+    text = hint.text
+
+    (text_width, text_height), _ = cv2.getTextSize(text, _FONT, scale, thickness)
+    x = max(10, (width - text_width) // 2)
+    y = height - int(height * 0.06)
+
+    band_top = y - text_height - int(20 * scale / 1.6)
+    band_bottom = y + int(16 * scale / 1.6)
+    overlay = image.copy()
+    cv2.rectangle(overlay, (0, band_top), (width, band_bottom), (0, 0, 0), -1)
+    cv2.addWeighted(overlay, 0.6, image, 0.4, 0, image)
+
+    cv2.putText(image, text, (x, y), _FONT, scale, (0, 0, 0), thickness + 3, cv2.LINE_AA)
+    cv2.putText(image, text, (x, y), _FONT, scale, colour, thickness, cv2.LINE_AA)
+
+    # A border in the same colour is legible even when the words are not.
+    cv2.rectangle(image, (2, 2), (width - 3, height - 3), colour, max(3, thickness))
+
+
 def draw_developer_overlay(
     image: np.ndarray,
     pose: PoseFrame,
     quality: Optional[PoseQualityReport],
     hud: DeveloperHud,
+    framing: Optional[FramingHint] = None,
 ) -> np.ndarray:
     """Return a copy of `image` annotated with pose and diagnostics.
 
     The input image is not modified, so the frame written to a video recording
     stays free of overlay graphics.
+
+    Args:
+        framing: If given, a large framing instruction is drawn over the
+            image. Shown whenever framing is imperfect, and during setup.
     """
     annotated = image.copy()
     if hud.show_skeleton:
@@ -196,6 +237,9 @@ def draw_developer_overlay(
         )
     if hud.message:
         lines.append((hud.message[:44], (40, 190, 240)))
+
+    if framing is not None and (hud.setup_mode or not framing.is_good):
+        draw_framing_banner(annotated, framing)
 
     _draw_text_block(annotated, lines)
 

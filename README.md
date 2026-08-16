@@ -30,10 +30,22 @@ first live run.
 ## Running the sandbox
 
 ```bash
+python -m src.app setup                       # camera framing check, records nothing
 python -m src.app live                        # live webcam with developer overlay
 python -m src.app replay-video FILE.mp4       # re-run pose inference over a video
 python -m src.app replay-pose FILE.jsonl      # replay a pose stream, no inference
 python -m src.app check                       # verify the local setup
+```
+
+Run `setup` before recording. It shows a large framing banner, readable from
+across a room, that reads GOOD POSITION only when the whole body is in frame.
+Two early development recordings were largely wasted because the legs were
+below the bottom edge and there was no way to tell until afterwards.
+
+Inspect a recording afterwards with:
+
+```bash
+python tools/inspect_recording.py recordings/<id>.jsonl
 ```
 
 Keys while a window is open:

@@ -31,10 +31,26 @@ first live run.
 
 ```bash
 python -m src.app setup                       # camera framing check, records nothing
+python -m src.app exercise                    # run STS-001 sit-to-stand live
+python -m src.app score FILE.jsonl            # score a recording with STS-001
 python -m src.app live                        # live webcam with developer overlay
 python -m src.app replay-video FILE.mp4       # re-run pose inference over a video
 python -m src.app replay-pose FILE.jsonl      # replay a pose stream, no inference
 python -m src.app check                       # verify the local setup
+```
+
+`exercise` counts sit-to-stand repetitions live. Calibration comes from the
+participant's own movement, so **the first sit-to-stand establishes the scale
+and is not counted** — stand and sit once before the repetitions you want
+scored.
+
+`score` replays a recorded pose stream through the same engine with no pose
+inference, so the same recording always gives the same result. Pass `--expect`
+with a known count to check the error profile; it exits non-zero on a false
+positive but not on a conservative miss (Doc 03 §49).
+
+```bash
+python -m src.app score recordings/<id>.jsonl --expect 10
 ```
 
 Run `setup` before recording. It shows a large framing banner, readable from

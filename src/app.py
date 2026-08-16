@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import argparse
 import dataclasses
+import json
 import logging
 import platform
 import sys
@@ -35,7 +36,10 @@ import numpy as np
 from src.camera.base import FrameSource, FrameSourceError, FrameSourceInfo
 from src.camera.video_file import VideoFileFrameSource
 from src.camera.webcam import WebcamFrameSource
-from src.config import AppConfig, ConfigurationError, load_config
+from src.config import AppConfig, ConfigurationError, load_config, load_sts_config
+from src.exercises.base import ExerciseResult
+from src.exercises.events import Event, EventType
+from src.exercises.sit_to_stand import SitToStandEngine
 from src.movement.features import (
     HIP_HEIGHT,
     HIP_VERTICAL_VELOCITY,
@@ -63,6 +67,16 @@ from src.version import APPLICATION_VERSION
 LOGGER = logging.getLogger("vision_exercise")
 
 WINDOW_NAME = "Vision Exercise System — Pose Sandbox"
+
+_LOGGED_EVENTS = (
+    EventType.CALIBRATED,
+    EventType.REP_COMPLETED,
+    EventType.PARTIAL_REP,
+    EventType.INVALID_REP,
+    EventType.QUALITY_FLAG,
+    EventType.EXERCISE_COMPLETED,
+)
+"""Events worth surfacing to a developer watching a run."""
 
 KEY_QUIT = {ord("q"), 27}
 KEY_RECORD = ord("r")
@@ -220,6 +234,7 @@ def run_frame_loop(
     record_video: bool = False,
     record_from_start: bool = False,
     setup_mode: bool = False,
+    exercise: Optional[SitToStandEngine] = None,
 ) -> int:
     """Run the sandbox loop over any frame source.
 
@@ -260,6 +275,18 @@ def run_frame_loop(
             # derived from the filtered stream, because thresholds must not be
             # crossed by noise (CLAUDE.md §8).
             features = extractor.update(pose_filter.apply(pose))
+
+            if exercise is not None:
+                for event in exercise.update(pose, features, report):
+                    if event.event in _LOGGED_EVENTS:
+                        LOGGER.info(
+                            "%s%s %s",
+                            event.event.value,
+                            f" #{event.sequence}" if event.sequence else "",
+                            event.payload or "",
+                        )
+                    if event.event is EventType.REP_COMPLETED:
+                        hud.message = f"rep {event.sequence} complete"
             fps_meter.tick()
             inference_mean.add(engine.last_inference_ms)
             processed += 1
@@ -288,6 +315,10 @@ def run_frame_loop(
             hud.recorded_frames = (
                 0 if recording is None else recording.pose_writer.frame_count
             )
+            if exercise is not None:
+                hud.exercise_state = exercise.state.value
+                hud.repetitions = exercise.valid_repetitions
+                hud.calibrated = exercise.calibration is not None
             hud.features = {
                 "hip_height": features.value(HIP_HEIGHT),
                 "hip_velocity": features.value(HIP_VERTICAL_VELOCITY),
@@ -356,6 +387,113 @@ def command_live(args: argparse.Namespace, config: AppConfig) -> int:
         )
     LOGGER.info("live_session_finished frames=%d", processed)
     return 0
+
+
+def command_exercise(args: argparse.Namespace, config: AppConfig) -> int:
+    """Run STS-001 against the live camera.
+
+    Calibration comes from the participant's own movement, so the first
+    sit-to-stand establishes the scale and is not counted. Stand and sit
+    once before the repetitions you want scored.
+    """
+    sts_config = load_sts_config(args.exercise_config)
+    if args.target is not None:
+        sts_config = dataclasses.replace(sts_config, target_repetitions=args.target)
+
+    source = build_frame_source(config, device_index=args.device)
+    engine = build_pose_engine(config)
+    exercise = SitToStandEngine(sts_config)
+    exercise.initialise()
+
+    with source, engine:
+        print("STS-001 Sit to Stand.")
+        print("The first sit-to-stand calibrates and is not counted.")
+        print("Press r to record, q to finish.")
+        processed = run_frame_loop(
+            source,
+            engine,
+            config,
+            mode="STS-001",
+            headless=args.headless,
+            max_frames=args.max_frames,
+            record_video=args.record_video,
+            record_from_start=args.record,
+            exercise=exercise,
+        )
+    exercise.stop()
+    _print_result(exercise.result(), args.json)
+    LOGGER.info("exercise_finished frames=%d", processed)
+    return 0
+
+
+def command_score(args: argparse.Namespace, config: AppConfig) -> int:
+    """Score a recorded pose stream with STS-001, running no pose inference.
+
+    This is the reproducible path: the same recording must always produce the
+    same result, so an algorithm change can be judged against a known
+    recording rather than against a fresh demonstration (CLAUDE.md §17).
+    """
+    sts_config = load_sts_config(args.exercise_config)
+    if args.target is not None:
+        sts_config = dataclasses.replace(sts_config, target_repetitions=args.target)
+
+    assessor = PoseQualityAssessor(config.pose_quality)
+    pose_filter = PoseFilter(config.filtering)
+    extractor = FeatureExtractor(config.features)
+    exercise = SitToStandEngine(sts_config)
+    exercise.initialise()
+
+    events: list[Event] = []
+    with PoseStreamSource(args.path) as stream:
+        metadata = stream.metadata
+        for pose in stream.poses():
+            quality = assessor.assess(pose)
+            features = extractor.update(pose_filter.apply(pose))
+            events.extend(exercise.update(pose, features, quality))
+    events.extend(exercise.stop())
+
+    result = exercise.result()
+    print(f"Recording   {metadata.recording_id}   view {metadata.camera_view}")
+    print(f"Algorithm   STS-001 {result.exercise_algorithm_version}")
+    print()
+    for event_type in _LOGGED_EVENTS:
+        count = sum(1 for e in events if e.event is event_type)
+        if count:
+            print(f"  {event_type.value:24} {count}")
+    print()
+    _print_result(result, args.json)
+
+    if args.expect is not None:
+        detected = result.valid_repetitions
+        missed = max(0, args.expect - detected)
+        false_positive = max(0, detected - args.expect)
+        print(
+            f"\nGround truth {args.expect}: detected {detected}, "
+            f"missed {missed}, false positives {false_positive}"
+        )
+        # A false repetition is worse than a conservative miss
+        # (Document 03 §49), so only that fails the check.
+        return 1 if false_positive else 0
+    return 0
+
+
+def _print_result(result: ExerciseResult, as_json: bool) -> None:
+    if as_json:
+        print(json.dumps(result.to_dict(), indent=2))
+        return
+    print(f"Repetitions      {result.valid_repetitions}", end="")
+    if result.target_repetitions:
+        print(f" / {result.target_repetitions}")
+    else:
+        print()
+    print(f"Partial          {result.partial_repetitions}")
+    print(f"Duration         {result.duration_seconds:.1f}s")
+    for name, value in result.metrics.items():
+        if isinstance(value, (int, float)):
+            print(f"  {name:32} {value}")
+    if result.quality_flags:
+        print(f"Quality flags    {result.quality_flags}")
+    print(f"Pose quality     {result.pose_quality} (worst seen)")
 
 
 def command_setup(args: argparse.Namespace, config: AppConfig) -> int:
@@ -563,6 +701,47 @@ def build_parser() -> argparse.ArgumentParser:
     live.add_argument("--headless", action="store_true", help="Do not open a window.")
     live.add_argument("--max-frames", type=int, default=None, help="Stop after N frames.")
     live.set_defaults(handler=command_live)
+
+    exercise = subparsers.add_parser(
+        "exercise", help="Run STS-001 sit-to-stand against the live camera."
+    )
+    exercise.add_argument("--device", type=int, default=None, help="Camera index.")
+    exercise.add_argument(
+        "--camera-view", default=None, help="Camera placement recorded with the take."
+    )
+    exercise.add_argument(
+        "--target", type=int, default=None, help="Target repetitions."
+    )
+    exercise.add_argument(
+        "--exercise-config", type=Path, default=None, help="STS-001 configuration file."
+    )
+    exercise.add_argument(
+        "--record", action="store_true", help="Record a pose stream from the start."
+    )
+    exercise.add_argument(
+        "--record-video", action="store_true", help="Also record video."
+    )
+    exercise.add_argument("--json", action="store_true", help="Print the result as JSON.")
+    exercise.add_argument("--headless", action="store_true", help="Do not open a window.")
+    exercise.add_argument(
+        "--max-frames", type=int, default=None, help="Stop after N frames."
+    )
+    exercise.set_defaults(handler=command_exercise)
+
+    score = subparsers.add_parser(
+        "score", help="Score a recorded pose stream with STS-001. No inference."
+    )
+    score.add_argument("path", type=Path, help="Pose stream (.jsonl).")
+    score.add_argument("--target", type=int, default=None, help="Target repetitions.")
+    score.add_argument(
+        "--expect", type=int, default=None,
+        help="Known repetition count. Exits non-zero on a false positive.",
+    )
+    score.add_argument(
+        "--exercise-config", type=Path, default=None, help="STS-001 configuration file."
+    )
+    score.add_argument("--json", action="store_true", help="Print the result as JSON.")
+    score.set_defaults(handler=command_score)
 
     setup = subparsers.add_parser(
         "setup", help="Camera framing check before recording. No recording made."

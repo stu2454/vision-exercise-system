@@ -69,6 +69,10 @@ class DeveloperHud:
     show_skeleton: bool = True
     setup_mode: bool = False
     features: dict[str, Optional[float]] = field(default_factory=dict)
+    exercise_state: str = ""
+    repetitions: Optional[int] = None
+    target_repetitions: Optional[int] = None
+    calibrated: bool = False
     message: str = ""
 
 
@@ -222,6 +226,38 @@ def draw_developer_overlay(
         )
         if problem_landmarks:
             lines.append((", ".join(sorted(set(problem_landmarks)))[:44], grey))
+
+    if hud.repetitions is not None:
+        # Drawn large: during an exercise the repetition count is the one
+        # thing worth reading from across a room.
+        target = f" / {hud.target_repetitions}" if hud.target_repetitions else ""
+        cv2.putText(
+            annotated,
+            f"{hud.repetitions}{target}",
+            (annotated.shape[1] - 260, annotated.shape[0] - 40),
+            _FONT,
+            2.2,
+            (0, 0, 0),
+            9,
+            cv2.LINE_AA,
+        )
+        cv2.putText(
+            annotated,
+            f"{hud.repetitions}{target}",
+            (annotated.shape[1] - 260, annotated.shape[0] - 40),
+            _FONT,
+            2.2,
+            (120, 230, 120),
+            4,
+            cv2.LINE_AA,
+        )
+        lines.append(
+            (
+                f"exercise        {hud.exercise_state}"
+                + ("" if hud.calibrated else "  (calibrating)"),
+                white,
+            )
+        )
 
     if hud.features:
         # Movement features, so algorithm behaviour is visible while it runs

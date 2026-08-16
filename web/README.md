@@ -12,17 +12,41 @@ the spike cannot quietly become a port.
 
 ## Running it
 
-`getUserMedia` needs `localhost` or https, so it will not work by opening the
-file directly. Serve the repository root, not this directory — the page loads
-the pose model from `../models/`.
-
 ```bash
 cd ~/dev/vision-exercise-system
 source .venv/bin/activate
-python -m http.server 8000
+python tools/exercise_server.py
 ```
 
 Then open <http://localhost:8000/web/>.
+
+That one command serves the page and scores the pose frames. `python -m
+http.server 8000` also works but gives no live repetition count.
+
+`getUserMedia` needs `localhost` or https, so opening the file directly will
+not work. The server serves the repository root rather than this directory,
+because the page loads the pose model from `models/`.
+
+## Live repetition counting
+
+The browser captures, runs pose estimation and draws. It does **not** interpret
+movement: no filtering, no features, no calibration, no state machine. It posts
+canonical pose frames to the Python scorer and displays what comes back.
+
+That keeps the exercise engine implemented once, where the regression dataset
+can validate it, which is what Document 03 §7 and ADR-010 ask for while the
+movement model is still changing — calibration changed three times in two days.
+
+Frames are batched every 100 ms rather than streamed. A repetition takes around
+2.4 seconds, so the delay is not noticeable. It would **not** be adequate for
+reaction-timed stepping games, and that is one reason those need the algorithm
+settled and ported rather than bridged.
+
+Verified against a real recording: the bridge and `python -m src.app score`
+both report 11 repetitions for the same pose stream.
+
+Without the server the page still works — it records, and the file can be
+scored afterwards. It says so rather than appearing broken.
 
 To try it on a tablet on the same network, find your machine's address with
 `ipconfig getifaddr en0` and open `http://<address>:8000/web/` — but note that

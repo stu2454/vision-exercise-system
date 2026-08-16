@@ -179,17 +179,52 @@ class TestRecordingInteroperability:
 
 
 class TestScope:
-    def test_the_spike_does_not_reimplement_the_exercise_layer(self):
-        # Document 03 §7 and ADR-010: do not build both implementations at
-        # once. If these names appear in the browser code, the spike has
-        # quietly become a port and the decision should be explicit.
-        forbidden = ("StsState", "sit_to_stand", "SitToStand", "rep_completed")
+    """The browser may display the engine's output, never compute it.
+
+    Document 03 §7 and ADR-010: do not build both implementations while the
+    movement model is still changing. Consuming a `rep_completed` event from
+    the Python scorer is fine; deciding when one has occurred is not.
+
+    The markers are the STS threshold names. Anyone porting the state machine
+    or its calibration has to bring these with them, so their absence is a
+    reliable sign the logic still lives in one place.
+    """
+
+    IMPLEMENTATION_MARKERS = (
+        "rising_enter", "risingEnter",
+        "standing_enter", "standingEnter",
+        "standing_exit", "standingExit",
+        "seated_enter", "seatedEnter",
+        "minimum_dwell_ms", "minimumDwellMs",
+        "seated_hip_height", "seatedHipHeight",
+        "standing_hip_height", "standingHipHeight",
+        "rapid_descent_ratio", "rapidDescentRatio",
+    )
+
+    def test_the_browser_does_not_implement_the_exercise_engine(self):
         for file in WEB.glob("*.js"):
             source = file.read_text(encoding="utf-8")
-            for name in forbidden:
-                assert name not in source, (
-                    f"{file.name} references {name}; the browser spike is "
-                    "turning into a port of the exercise engine"
+            for marker in self.IMPLEMENTATION_MARKERS:
+                assert marker not in source, (
+                    f"{file.name} contains {marker}; the browser is "
+                    "reimplementing the exercise engine rather than "
+                    "displaying its output"
+                )
+
+    def test_the_browser_delegates_scoring_to_python(self):
+        # The positive half: it must actually be asking the scorer.
+        bridge = read("bridge.js")
+        assert "/api/frames" in bridge
+        assert "/api/session" in bridge
+
+    def test_no_movement_feature_is_computed_in_the_browser(self):
+        # Filtering and features stay in Python too. Gesture geometry is the
+        # deliberate exception, and is limited to elbow angle.
+        for name in ("hip_height", "hipHeight", "ExponentialMovingAverage",
+                     "hip_vertical_velocity", "stance_width"):
+            for file in WEB.glob("*.js"):
+                assert name not in file.read_text(encoding="utf-8"), (
+                    f"{file.name} computes {name}; features belong in Python"
                 )
 
 

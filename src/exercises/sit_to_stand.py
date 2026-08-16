@@ -329,6 +329,10 @@ class SitToStandEngine(ExerciseEngine):
     # ---------------------------------------------------------------- state
 
     @property
+    def config(self) -> StsConfig:
+        return self._config
+
+    @property
     def state(self) -> StsState:
         return self._state
 

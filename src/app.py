@@ -41,15 +41,14 @@ from src.exercises.base import ExerciseResult
 from src.exercises.events import Event, EventType
 from src.evaluation import score_pose_stream
 from src.exercises.sit_to_stand import SitToStandEngine
+from src.live_session import LiveSession
 from src.movement.features import (
     HIP_HEIGHT,
     HIP_VERTICAL_VELOCITY,
     MEAN_KNEE_ANGLE,
     STANCE_WIDTH_NORMALISED,
     TRUNK_ANGLE,
-    FeatureExtractor,
 )
-from src.movement.filtering import PoseFilter
 from src.movement.gestures import ArmRaiseDetector
 from src.pose.adapters.mediapipe_adapter import MediaPipePoseEngine
 from src.pose.base import PoseEngine, PoseEngineError
@@ -261,9 +260,11 @@ def run_frame_loop(
     Returns:
         The number of frames processed.
     """
-    assessor = PoseQualityAssessor(config.pose_quality)
-    pose_filter = PoseFilter(config.filtering)
-    extractor = FeatureExtractor(config.features)
+    # One assembly of the pipeline, shared with the browser bridge, so the
+    # two cannot drift into scoring the same movement differently.
+    # One assembly of the pipeline, shared with the browser bridge, so the
+    # two cannot drift into scoring the same movement differently.
+    session = LiveSession(config, engine=exercise)
     fps_meter = FpsMeter()
     inference_mean = RollingMean()
     source_label = source.info().description
@@ -279,12 +280,6 @@ def run_frame_loop(
     try:
         for frame in source.frames():
             pose = engine.estimate(frame, source=f"{engine.info().engine}:{source_label}")
-            report = assessor.assess(pose)
-            # Pose quality is judged on raw landmarks, because smoothing would
-            # hide the jitter that quality exists to detect. Features are
-            # derived from the filtered stream, because thresholds must not be
-            # crossed by noise (CLAUDE.md §8).
-            features = extractor.update(pose_filter.apply(pose))
 
             if awaiting_start and start_gesture is not None:
                 gesture = start_gesture.update(pose)
@@ -318,8 +313,14 @@ def run_frame_loop(
                     LOGGER.info("stop_gesture_detected")
                     break
 
-            if exercise is not None and not awaiting_start:
-                for event in exercise.update(pose, features, report):
+            # Quality and features are always computed for the overlay;
+            # scoring waits for the start signal so the walk into position
+            # never reaches calibration.
+            update = session.update(pose, score=not awaiting_start)
+            report, features = update.quality, update.features
+
+            if exercise is not None:
+                for event in update.events:
                     if event.event in _LOGGED_EVENTS:
                         LOGGER.info(
                             "%s%s %s",

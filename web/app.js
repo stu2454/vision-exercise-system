@@ -17,6 +17,7 @@ import {
   landmarksToCanonical,
   makePoseFrame,
 } from "./canonical.js";
+import { ScoringBridge } from "./bridge.js";
 import { ArmRaiseDetector, GESTURE_DEFAULTS } from "./gestures.js";
 import { PoseStreamRecorder } from "./recorder.js";
 
@@ -43,6 +44,8 @@ const ui = {
   download: el("download"),
   skeleton: el("skeleton"),
   gestures: el("gestures"),
+  reps: el("reps"),
+  exerciseState: el("exercise-state"),
   view: el("view"),
   status: el("status"),
   fps: el("fps"),
@@ -74,6 +77,12 @@ const state = {
   settleUntilMs: null,
   prompt: "",
   promptProgress: 0,
+  // Scoring runs in Python. The browser sends canonical pose frames and
+  // displays what comes back; it never interprets movement itself.
+  bridge: null,
+  reps: null,
+  target: null,
+  exerciseState: "",
 };
 
 /** Rolling frame-rate estimate from delivered frame timestamps. */
@@ -143,6 +152,27 @@ function drawSkeleton(context, pose, width, height) {
  * exercise, which is how two Python takes came to be recorded with the legs
  * out of frame.
  */
+/**
+ * The repetition count, large enough to read from the chair.
+ *
+ * The one number worth seeing during an exercise, so it is drawn at the size
+ * that makes it readable across a room rather than in the readout strip.
+ */
+function drawRepetitionCount(context, width, height) {
+  const text = state.target ? `${state.reps} / ${state.target}` : `${state.reps}`;
+  const size = Math.round(Math.max(48, width / 11));
+  context.font = `700 ${size}px ui-monospace, Menlo, monospace`;
+  context.textAlign = "end";
+  const x = width - Math.round(width * 0.03);
+  const y = height - Math.round(height * 0.16);
+  context.lineWidth = Math.max(4, size / 12);
+  context.strokeStyle = "rgba(0, 0, 0, 0.75)";
+  context.strokeText(text, x, y);
+  context.fillStyle = "#78dc8c";
+  context.fillText(text, x, y);
+  context.textAlign = "start";
+}
+
 function drawBanner(context, text, progress, width, height) {
   const scale = Math.max(1, width / 640) * 1.4;
   const fontSize = Math.round(22 * scale);
@@ -292,6 +322,14 @@ function stopEverything(message = "Camera off.") {
   context.fillStyle = "#000";
   context.fillRect(0, 0, ui.canvas.width, ui.canvas.height);
 
+  if (state.bridge) {
+    state.bridge.stop();
+    state.bridge = null;
+  }
+  state.reps = null;
+  state.target = null;
+  ui.reps.textContent = "—";
+  ui.exerciseState.textContent = "—";
   state.lastPose = null;
   state.prompt = "";
   state.promptProgress = 0;
@@ -372,6 +410,10 @@ function loop() {
 
     updateGestures(pose);
 
+    if (state.bridge && state.bridge.active) {
+      state.bridge.push(pose, performance.now());
+    }
+
     if (state.recorder.recording) {
       state.recorder.write(pose);
       ui.frames.textContent = String(state.recorder.frameCount);
@@ -389,6 +431,10 @@ function loop() {
 
   if (state.showSkeleton && state.lastPose && state.lastPose.person_confidence > 0) {
     drawSkeleton(context, state.lastPose, width, height);
+  }
+
+  if (state.reps !== null) {
+    drawRepetitionCount(context, width, height);
   }
 
   if (state.prompt) {
@@ -451,16 +497,58 @@ function beginRecording() {
   ui.record.classList.add("recording");
   ui.frames.textContent = "0";
   setStatus(`Recording ${id}`, "rec");
+  startScoring();
   return true;
 }
 
-function endRecording() {
+/** Open a scoring session with the Python server, if one is reachable. */
+function startScoring() {
+  state.bridge = new ScoringBridge({
+    onStatus: (data) => {
+      state.reps = data.repetitions;
+      state.target = data.target;
+      state.exerciseState = data.state || "";
+      ui.reps.textContent =
+        data.target ? `${data.repetitions} / ${data.target}` : String(data.repetitions);
+      ui.exerciseState.textContent =
+        (data.state || "—") + (data.calibrated ? "" : " (calibrating)");
+    },
+    onEvent: (event) => {
+      if (event.event === "rep_completed") {
+        setStatus(`Repetition ${event.sequence}`, "ok");
+      }
+    },
+    onError: (message) => setStatus(message, "warn"),
+  });
+  state.bridge.start().catch(() => {
+    // The page is usable without the scorer: it still records, and the file
+    // can be scored afterwards. Say so rather than appearing broken.
+    state.bridge = null;
+    setStatus(
+      "Recording without live scoring — run tools/exercise_server.py for a live count.",
+      "warn",
+    );
+  });
+}
+
+async function endRecording() {
   if (!state.recorder.recording) return;
   const id = state.recorder.stop();
   ui.record.textContent = "Start recording";
   ui.record.classList.remove("recording");
   ui.download.disabled = state.recorder.frameCount === 0;
-  setStatus(`Recorded ${state.recorder.frameCount} frames as ${id}`, "ok");
+
+  let summary = `Recorded ${state.recorder.frameCount} frames as ${id}`;
+  if (state.bridge && state.bridge.active) {
+    const result = await state.bridge.stop();
+    if (result) {
+      const mean = result.metrics && result.metrics.mean_rep_duration_seconds;
+      summary +=
+        ` — ${result.valid_repetitions} repetitions` +
+        (mean ? `, mean ${mean.toFixed(2)}s` : "");
+    }
+  }
+  setStatus(summary, "ok");
   armGestures();
 }
 

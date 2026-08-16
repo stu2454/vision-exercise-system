@@ -273,6 +273,30 @@ Wrong twice, in opposite directions. Reported 10 where evidence showed 12;
 reported 11 where it was 12, having not counted the first repetition. A
 disputed count is not recorded until resolved.
 
+### Browser runtime — measured 17 August 2026
+
+A browser spike (`web/`) running the **same** `pose_landmarker_lite.task` file
+as the Python application, on the same M5 laptop:
+
+| | Python | Browser |
+|---|---|---|
+| Inference | 10.6 ms | **13.3 ms** |
+| Sustained rate | 80 fps | **59.9 fps** |
+
+The 59.9 is the display's 60 Hz refresh capping `requestAnimationFrame`, not a
+limit of the runtime: 13.3 ms implies roughly 75 fps of headroom. The browser
+is around 25% slower at inference than native Python and still well above the
+30 fps capture target.
+
+This materially improves the case for the browser deployment path in Document
+03 §7 and ADR-010, and correspondingly weakens the case for buying dedicated
+inference hardware. It does not settle it — the figure is one machine, and the
+Raspberry Pi 5 remains unbenchmarked.
+
+Measured with only the head and shoulders in frame, so person confidence was
+0.24 and not comparable with a full-body take. Inference time is largely
+independent of that; the frame rate figure is the one to trust here.
+
 ### Raspberry Pi 5 with AI HAT
 
 The Hailo accelerator **cannot run MediaPipe** — there is no Hailo delegate for

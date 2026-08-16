@@ -207,6 +207,7 @@ function stopEverything(message = "Camera off.") {
   ui.inference.textContent = "—";
   ui.confidence.textContent = "—";
   ui.landmarks.textContent = "0";
+  ui.resolution.textContent = "—";
   setStatus(message);
 }
 
@@ -223,8 +224,12 @@ function loop() {
   if (ui.canvas.width !== width || ui.canvas.height !== height) {
     ui.canvas.width = width;
     ui.canvas.height = height;
-    ui.resolution.textContent = `${width}x${height}`;
   }
+  // Set every frame rather than only on a size change. The canvas starts at
+  // 1280x720 in the markup, so when the camera delivers exactly that the
+  // condition above never fires and the readout stayed blank — which looked
+  // like the camera had failed to report a size when it had not.
+  ui.resolution.textContent = `${width}x${height}`;
 
   const context = ui.canvas.getContext("2d");
 

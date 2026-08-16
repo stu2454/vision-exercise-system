@@ -19,6 +19,7 @@ from src.pose.quality import DEFAULT_REQUIRED_LANDMARKS, PoseQualityConfig
 
 REPOSITORY_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_CONFIG_PATH = REPOSITORY_ROOT / "config" / "application.yaml"
+EXERCISES_DIRECTORY = REPOSITORY_ROOT / "config" / "exercises"
 
 
 class ConfigurationError(RuntimeError):
@@ -143,6 +144,63 @@ def _build(cls: type, data: dict[str, Any], section: str) -> Any:
         return cls(**data)
     except TypeError as exc:
         raise ConfigurationError(f"Invalid '{section}' configuration: {exc}") from exc
+
+
+def load_sts_config(path: Path | str | None = None) -> "StsConfig":
+    """Load STS-001 parameters from versioned configuration.
+
+    The YAML groups values by concern (state_machine, repetition, quality,
+    calibration) for readability; `StsConfig` is flat. Mapping between them
+    happens here rather than flattening the file, so the file stays legible
+    to someone tuning thresholds.
+    """
+    from src.exercises.sit_to_stand import StsConfig
+
+    config_path = Path(path) if path is not None else EXERCISES_DIRECTORY / "STS-001.yaml"
+    if not config_path.exists():
+        if path is not None:
+            raise ConfigurationError(f"Exercise configuration not found: {config_path}")
+        return StsConfig()
+
+    try:
+        raw = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+    except yaml.YAMLError as exc:
+        raise ConfigurationError(f"Could not parse {config_path}: {exc}") from exc
+    if not isinstance(raw, dict):
+        raise ConfigurationError(f"{config_path} must contain a top-level mapping.")
+
+    machine = _section(raw, "state_machine")
+    repetition = _section(raw, "repetition")
+    quality = _section(raw, "quality")
+    calibration = _section(raw, "calibration")
+    pose_quality = _section(raw, "pose_quality")
+
+    try:
+        config = StsConfig(
+            target_repetitions=raw.get("target_repetitions"),
+            rising_enter=float(machine.get("rising_enter", 0.25)),
+            standing_enter=float(machine.get("standing_enter", 0.80)),
+            standing_exit=float(machine.get("standing_exit", 0.65)),
+            seated_enter=float(machine.get("seated_enter", 0.20)),
+            minimum_dwell_ms=float(machine.get("minimum_dwell_ms", 100.0)),
+            minimum_rise_velocity=float(machine.get("minimum_rise_velocity", 0.02)),
+            minimum_rep_seconds=float(repetition.get("minimum_rep_seconds", 0.8)),
+            maximum_rep_seconds=float(repetition.get("maximum_rep_seconds", 20.0)),
+            rapid_descent_seconds=float(quality.get("rapid_descent_seconds", 0.5)),
+            calibration_minimum_travel=float(calibration.get("minimum_travel", 0.04)),
+            calibration_low_percentile=float(calibration.get("low_percentile", 0.05)),
+            calibration_high_percentile=float(calibration.get("high_percentile", 0.95)),
+            calibration_window=int(calibration.get("window_frames", 900)),
+            quality_recovery_frames=int(pose_quality.get("recovery_frames", 5)),
+        )
+    except (TypeError, ValueError) as exc:
+        raise ConfigurationError(f"Invalid STS-001 configuration: {exc}") from exc
+
+    try:
+        config.validate()
+    except ValueError as exc:
+        raise ConfigurationError(f"Invalid STS-001 thresholds in {config_path}: {exc}") from exc
+    return config
 
 
 def load_config(path: Path | str | None = None) -> AppConfig:

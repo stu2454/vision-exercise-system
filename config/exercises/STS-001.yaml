@@ -1,0 +1,69 @@
+# STS-001 Sit to Stand
+#
+# Engineering parameters, not clinical thresholds. Every value here is a
+# starting point to be established by experiment against the regression
+# dataset (CLAUDE.md §24, §37).
+#
+# Heights are normalised against this participant's own calibrated range:
+# 0.0 is their seated hip height, 1.0 their standing hip height. Absolute
+# image units are never used, because they depend on how far the participant
+# is standing from the camera.
+
+exercise_id: STS-001
+name: Sit to Stand
+specification_version: "0.1"
+algorithm_version: "0.1.0"
+
+# Prescribed repetitions, or null for open-ended.
+target_repetitions: null
+
+state_machine:
+  # Rising is under way above this height.
+  rising_enter: 0.25
+  # Counted as standing at or above this height.
+  standing_enter: 0.80
+  # Standing has ended below this height. Must be below standing_enter:
+  # the gap is the hysteresis that stops a held posture oscillating.
+  standing_exit: 0.65
+  # Seated again at or below this height.
+  seated_enter: 0.20
+  # A condition must hold this long before the state changes, so one noisy
+  # frame cannot trigger a transition (CLAUDE.md §13).
+  minimum_dwell_ms: 100.0
+  # Upward hip speed confirming a genuine rise, in image heights per second.
+  minimum_rise_velocity: 0.02
+
+repetition:
+  # Faster than a person can sit and stand: a detection artefact, discarded.
+  # Rejecting these keeps false positives low, which matters more than raw
+  # count accuracy (Document 03 §49).
+  minimum_rep_seconds: 0.8
+  # Beyond this the movement is treated as abandoned.
+  maximum_rep_seconds: 20.0
+
+quality:
+  # Descent quicker than this raises a movement-quality flag. A cue about
+  # control, not a safety judgement.
+  rapid_descent_seconds: 0.5
+
+calibration:
+  # Hip excursion that must be observed before calibration is accepted.
+  # Scoring starts only after one full cycle, so the calibrating cycle is
+  # not counted.
+  minimum_travel: 0.04
+  # Percentiles rather than min and max: one outlier frame would otherwise
+  # define the whole scale, which was observed to collapse rep detection
+  # from 9 cycles to 2 on a real recording.
+  low_percentile: 0.05
+  high_percentile: 0.95
+  window_frames: 900
+
+pose_quality:
+  # Consecutive scorable frames before scoring resumes after an
+  # interruption. Recovery is deliberately slower than degradation.
+  recovery_frames: 5
+
+feedback:
+  repetition_count: true
+  encouragement: true
+  movement_quality: false

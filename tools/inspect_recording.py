@@ -26,7 +26,9 @@ from typing import Optional
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from src.config import load_config  # noqa: E402
 from src.pose.models import HIP_CENTRE, PoseFrame  # noqa: E402
+from src.pose.quality import PoseQualityAssessor  # noqa: E402
 from src.replay.pose_replay import PoseStreamRecord, read_pose_stream  # noqa: E402
 
 SCORABLE = ("GOOD", "DEGRADED")
@@ -45,16 +47,31 @@ class Segment:
         return self.end_s - self.start_s
 
 
+def resolve_statuses(records: list[PoseStreamRecord]) -> tuple[list[str], bool]:
+    """Per-frame quality status, and whether it came from the recording.
+
+    Recordings made by the browser sandbox carry no per-frame quality, because
+    the quality layer lives in Python. Reporting zeros for such a stream made
+    it look as though every frame had failed, when in fact nothing had been
+    stored. Quality is derived from the pose, so it is recomputed here and
+    labelled as recomputed rather than presented as recorded fact.
+    """
+    if records and all(r.recorded_quality for r in records):
+        return [r.recorded_quality["status"] for r in records], True
+    assessor = PoseQualityAssessor(load_config().pose_quality)
+    return [assessor.assess(r.pose).status.value for r in records], False
+
+
 def find_segments(
-    records: list[PoseStreamRecord], minimum_s: float = 2.0
+    records: list[PoseStreamRecord],
+    statuses: list[str],
+    minimum_s: float = 2.0,
 ) -> list[Segment]:
     """Contiguous runs where pose quality permits scoring."""
     segments: list[Segment] = []
     start_index: Optional[int] = None
-    for index, record in enumerate(records):
-        scorable = record.recorded_quality is None or (
-            record.recorded_quality.get("status") in SCORABLE
-        )
+    for index, status in enumerate(statuses):
+        scorable = status in SCORABLE
         if scorable and start_index is None:
             start_index = index
         elif not scorable and start_index is not None:
@@ -73,28 +90,29 @@ def _segment(records: list[PoseStreamRecord], first: int, last: int) -> Segment:
     )
 
 
-def timeline(records: list[PoseStreamRecord], width: int = 60) -> list[str]:
+def timeline(
+    records: list[PoseStreamRecord], statuses: list[str], width: int = 60
+) -> list[str]:
     """One character per second, labelled with real timestamps.
 
     A second counts as its worst frame, so the chart never suggests a second
     was clean when part of it was not.
     """
     buckets: dict[int, list[str]] = {}
-    for record in records:
+    for record, status in zip(records, statuses):
         second = int(record.pose.timestamp_ms // 1000)
-        status = (record.recorded_quality or {}).get("status", "GOOD")
         buckets.setdefault(second, []).append(status)
     if not buckets:
         return []
     first, last = min(buckets), max(buckets)
     marks = []
     for second in range(first, last + 1):
-        statuses = buckets.get(second)
-        if not statuses:
+        in_second = buckets.get(second)
+        if not in_second:
             marks.append(" ")  # no frames recorded for this second
-        elif "INSUFFICIENT" in statuses:
+        elif "INSUFFICIENT" in in_second:
             marks.append(".")
-        elif "DEGRADED" in statuses:
+        elif "DEGRADED" in in_second:
             marks.append("-")
         else:
             marks.append("#")
@@ -201,10 +219,9 @@ def main(argv: Optional[list[str]] = None) -> int:
     print(f"  frames       {len(records)}   duration {duration:.1f}s")
     print(f"  spans        {timestamps[0]:.1f}s -> {timestamps[-1]:.1f}s from camera start")
 
-    counts = collections.Counter(
-        (r.recorded_quality or {}).get("status", "UNKNOWN") for r in records
-    )
-    print("\nPose quality")
+    statuses, recorded = resolve_statuses(records)
+    counts = collections.Counter(statuses)
+    print("\nPose quality" + ("" if recorded else "   (recomputed — not stored in this recording)"))
     for status in ("GOOD", "DEGRADED", "INSUFFICIENT"):
         n = counts.get(status, 0)
         print(f"  {status:14} {n:5d}  {100.0 * n / len(records):4.0f}%")
@@ -215,6 +232,8 @@ def main(argv: Optional[list[str]] = None) -> int:
     problems: collections.Counter = collections.Counter()
     for record in records:
         quality = record.recorded_quality or {}
+        if not quality:
+            continue
         for reason in quality.get("reasons", []):
             reasons[reason] += 1
         for key in ("missing_required", "low_confidence", "clipped"):
@@ -226,10 +245,10 @@ def main(argv: Optional[list[str]] = None) -> int:
             print(f"  {name:40} {n:5d}  {100.0 * n / len(records):3.0f}%")
 
     print("\nQuality over time   ( # GOOD   - DEGRADED   . INSUFFICIENT )")
-    for line in timeline(records):
+    for line in timeline(records, statuses):
         print(line)
 
-    segments = find_segments(records, args.min_segment)
+    segments = find_segments(records, statuses, args.min_segment)
     print(f"\nScorable segments (at least {args.min_segment:.0f}s)")
     if not segments:
         print("  none")

@@ -50,7 +50,10 @@ export class PoseStreamRecorder {
    * error into every velocity derived from the recording. See the amendment
    * to ADR-011.
    */
-  start({ measuredFps, width, height, cameraView, poseEngine, poseModelVersion, notes }) {
+  start({
+    measuredFps, width, height, cameraView, poseEngine, poseModelVersion,
+    trackSettings, notes,
+  }) {
     this.recordingId = newRecordingId();
     this.frames = [];
     this.metadata = {
@@ -76,6 +79,14 @@ export class PoseStreamRecorder {
         measured_fps: measuredFps,
         effective_fps: measuredFps,
         user_agent: navigator.userAgent,
+        // Whatever the browser will say about the camera's actual
+        // configuration. The operating system may apply effects the
+        // application never asked for and cannot switch off -- macOS Edge
+        // Light turns the display borders into a fill light whenever the
+        // camera is active, which changes the participant's illumination.
+        // Anything the browser exposes about that is worth keeping with the
+        // recording; what it does not expose has to be noted by hand.
+        track_settings: trackSettings || null,
       },
       format_version: POSE_STREAM_FORMAT_VERSION,
       notes: notes || "",

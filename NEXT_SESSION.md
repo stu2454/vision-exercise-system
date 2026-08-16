@@ -79,6 +79,12 @@ Then the take:
 python -m src.app exercise --camera-view frontal --record --record-video
 ```
 
+**Before recording:** turn off macOS camera effects — Edge Light, Centre
+Stage, Studio Light, background blur. The camera control in the menu bar shows
+them while the camera is live. Edge Light changes your illumination whenever
+the camera opens, which makes lighting a function of the software rather than
+the room. See `docs/failure-conditions.md`.
+
 Physically:
 
 1. Sit down, in shot.

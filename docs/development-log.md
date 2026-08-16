@@ -222,7 +222,34 @@ that produced it.
 evaluation tool and the regression tests. Gestures are recovered from the pose
 stream itself, so no recording format change was needed.
 
-### 3.8 Process failure: a mangled command polluted the repository
+### 3.8 The operating system was changing the lighting
+
+**Symptom.** A bright rounded-rectangle halo appeared around the browser window
+whenever the camera started, and vanished when it stopped.
+
+**Not the application.** The halo covered Safari's own toolbar and extended
+past the page on every side, and CSS cannot paint outside the viewport. I
+misidentified it twice from a photograph before that reasoning settled it.
+
+**Cause.** **macOS Edge Light** — a recent feature that turns the display
+borders into a virtual ring light whenever any application activates the
+camera. Applied by the operating system, never requested by the application.
+
+**Why it matters.** The participant's illumination stops being independent of
+the application. Lighting becomes a function of whether our software is
+running, which is exactly the variable a home-environment test is supposed to
+hold still. The same applies to Centre Stage, Studio Light and background
+blur; Centre Stage is the worst of them, because it pans and crops the frame
+during movement, which is indistinguishable from the participant moving and
+would corrupt participant-relative calibration.
+
+**Response.** Effects off while developing and recording. The browser recorder
+now stores `MediaStreamTrack.getSettings()` in the metadata, which captures
+what the browser will admit about the camera — it does not report Edge Light,
+so this is partial. Added to `docs/failure-conditions.md`, and no recording
+made so far records whether Edge Light was active.
+
+### 3.9 Process failure: a mangled command polluted the repository
 
 Shell commands were given with trailing `# comments`. Interactive zsh does not
 treat `#` as a comment, so `python3.12 -m venv .venv  # stdlib venv includes

@@ -332,8 +332,12 @@ function onRecord() {
     return;
   }
 
+  const track = state.stream ? state.stream.getVideoTracks()[0] : null;
+  const trackSettings = track && track.getSettings ? track.getSettings() : null;
+
   const id = state.recorder.start({
     measuredFps: fps,
+    trackSettings,
     width: ui.canvas.width,
     height: ui.canvas.height,
     cameraView: ui.view.value,

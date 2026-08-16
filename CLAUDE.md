@@ -1223,6 +1223,13 @@ Do not introduce Docker unless there is a concrete development/deployment reason
 
 # 35. Current immediate task
 
+> **Status note added 16 August 2026.** Builds 0-6 are complete: the Pose
+> Sandbox, movement features, STS-001 and the regression harness all exist.
+> The acceptance criteria below have been met and are retained as a record of
+> what the sandbox was required to do.
+>
+> For the current task, read `NEXT_SESSION.md` and `docs/development-log.md`.
+
 Unless explicitly instructed otherwise, the next implementation task is:
 
 > **Build the Pose Sandbox.**

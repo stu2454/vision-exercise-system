@@ -3,6 +3,10 @@
 A camera-based home exercise delivery and monitoring prototype using commodity
 RGB cameras and pose estimation.
 
+> **Returning to this project?** Start with
+> [NEXT_SESSION.md](NEXT_SESSION.md) — it holds the prompt to paste, where
+> things stand, and what was agreed next.
+
 ## Current phase
 
 Builds 0–6 are implemented: camera capture, MediaPipe pose estimation, the

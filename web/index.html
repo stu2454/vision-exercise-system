@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Browser Pose Sandbox — Vision Exercise System</title>
+<style>
+  :root {
+    --ground: #0f1513;
+    --surface: #161f1c;
+    --rule: #2a3733;
+    --ink: #e7edea;
+    --ink-soft: #a6b5af;
+    --ink-faint: #7e8d87;
+    --accent: #5fbfa1;
+    --ok: #78dc8c;
+    --warn: #f0be28;
+    --bad: #eb6b5e;
+    --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+    --sans: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 15px;
+    line-height: 1.5;
+  }
+  .wrap { max-width: 1100px; margin: 0 auto; padding: 1.5rem 1.25rem 4rem; }
+
+  header { border-bottom: 1px solid var(--rule); padding-bottom: 1rem; margin-bottom: 1.25rem; }
+  .eyebrow {
+    font-size: 0.7rem; letter-spacing: 0.14em; text-transform: uppercase;
+    color: var(--accent); margin: 0 0 0.4rem; font-weight: 600;
+  }
+  h1 { font-family: var(--mono); font-size: 1.4rem; letter-spacing: -0.02em; margin: 0 0 0.5rem; }
+  header p { margin: 0; color: var(--ink-soft); max-width: 60ch; font-size: 0.9rem; }
+
+  .stage {
+    position: relative; background: #000; border: 1px solid var(--rule);
+    border-radius: 4px; overflow: hidden; margin-bottom: 1rem;
+  }
+  video { display: none; }
+  canvas { display: block; width: 100%; height: auto; }
+
+  .controls { display: flex; flex-wrap: wrap; gap: 0.6rem; align-items: center; margin-bottom: 1.25rem; }
+  button {
+    font-family: var(--sans); font-size: 0.85rem; font-weight: 600;
+    padding: 0.55rem 1rem; border-radius: 3px; cursor: pointer;
+    background: var(--accent); color: #0d1a16; border: 1px solid var(--accent);
+  }
+  button:hover:not(:disabled) { filter: brightness(1.1); }
+  button:disabled { opacity: 0.4; cursor: not-allowed; }
+  button.secondary { background: transparent; color: var(--ink); border-color: var(--rule); }
+  button.recording { background: var(--bad); border-color: var(--bad); color: #1a0d0b; }
+  button:focus-visible, select:focus-visible, input:focus-visible {
+    outline: 2px solid var(--accent); outline-offset: 2px;
+  }
+  select {
+    font-family: var(--sans); font-size: 0.85rem; padding: 0.5rem 0.6rem;
+    background: var(--surface); color: var(--ink);
+    border: 1px solid var(--rule); border-radius: 3px;
+  }
+  label.check { display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.85rem; color: var(--ink-soft); }
+
+  #status {
+    font-family: var(--mono); font-size: 0.82rem; padding: 0.6rem 0.85rem;
+    background: var(--surface); border: 1px solid var(--rule);
+    border-left: 3px solid var(--ink-faint); border-radius: 3px; margin-bottom: 1.25rem;
+  }
+  #status.ok { border-left-color: var(--ok); }
+  #status.warn { border-left-color: var(--warn); }
+  #status.bad { border-left-color: var(--bad); }
+  #status.rec { border-left-color: var(--bad); color: var(--bad); }
+
+  .readout {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr));
+    gap: 1px; background: var(--rule); border: 1px solid var(--rule);
+    border-radius: 3px; overflow: hidden; margin-bottom: 1.5rem;
+  }
+  .cell { background: var(--surface); padding: 0.8rem 0.9rem; }
+  .cell .v {
+    font-family: var(--mono); font-size: 1.3rem; font-weight: 700;
+    font-variant-numeric: tabular-nums; display: block; line-height: 1.2;
+  }
+  .cell .k {
+    font-size: 0.66rem; letter-spacing: 0.09em; text-transform: uppercase;
+    color: var(--ink-faint);
+  }
+
+  .note {
+    background: var(--surface); border: 1px solid var(--rule);
+    border-top: 2px solid var(--accent); border-radius: 3px;
+    padding: 1rem 1.15rem; font-size: 0.88rem; color: var(--ink-soft);
+  }
+  .note h2 { font-family: var(--mono); font-size: 0.95rem; margin: 0 0 0.5rem; color: var(--ink); }
+  .note p { margin: 0 0 0.65rem; }
+  .note p:last-child { margin: 0; }
+  .note code {
+    font-family: var(--mono); font-size: 0.85em;
+    background: var(--ground); padding: 0.1em 0.35em; border-radius: 2px; color: var(--ink);
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <p class="eyebrow">Vision Exercise System</p>
+    <h1>Browser Pose Sandbox</h1>
+    <p>
+      A spike, not a port. It answers one question — does pose estimation run
+      acceptably in a browser? — and stops at pose. No filtering, features or
+      exercise logic; those stay in Python until the movement model is settled.
+    </p>
+  </header>
+
+  <div class="stage">
+    <video id="video" playsinline muted></video>
+    <canvas id="canvas" width="1280" height="720"></canvas>
+  </div>
+
+  <div class="controls">
+    <button id="start">Start camera</button>
+    <button id="record" class="secondary" disabled>Start recording</button>
+    <button id="download" class="secondary" disabled>Download pose stream</button>
+    <select id="view" aria-label="Camera view recorded with the take">
+      <option value="unspecified">View: unspecified</option>
+      <option value="frontal">View: frontal</option>
+      <option value="frontal_oblique">View: frontal oblique</option>
+      <option value="lateral">View: lateral</option>
+    </select>
+    <label class="check"><input type="checkbox" id="skeleton" checked> Skeleton</label>
+  </div>
+
+  <div id="status">Idle. Press Start camera.</div>
+
+  <div class="readout">
+    <div class="cell"><span class="v" id="fps">—</span><span class="k">Frames / sec</span></div>
+    <div class="cell"><span class="v" id="inference">—</span><span class="k">Inference</span></div>
+    <div class="cell"><span class="v" id="confidence">—</span><span class="k">Person conf.</span></div>
+    <div class="cell"><span class="v" id="landmarks">0</span><span class="k">Landmarks</span></div>
+    <div class="cell"><span class="v" id="frames">0</span><span class="k">Recorded</span></div>
+    <div class="cell"><span class="v" id="resolution">—</span><span class="k">Resolution</span></div>
+  </div>
+
+  <div class="note">
+    <h2>What to do with a recording</h2>
+    <p>
+      The download is a canonical pose stream in the same JSON Lines format the
+      Python recorder writes. Move it into <code>recordings/</code> and it can
+      be scored by the existing tooling:
+    </p>
+    <p>
+      <code>python -m src.app score recordings/web_&lt;id&gt;.jsonl --no-start-gesture</code>
+    </p>
+    <p>
+      Record the same movement in both runtimes and compare. Any difference is
+      the browser runtime, not the model — both load the identical
+      <code>pose_landmarker_lite.task</code> file from <code>models/</code>.
+    </p>
+  </div>
+
+</div>
+<script type="module" src="./app.js"></script>
+</body>
+</html>

@@ -1,0 +1,193 @@
+"""The browser sandbox must agree with the Python implementation.
+
+`web/canonical.js` restates the canonical landmark names, the MediaPipe index
+map and the synthetic midpoints in JavaScript. Two implementations of one
+definition drift, and if they do, a browser recording and a Python recording of
+the same movement would give different results for reasons having nothing to do
+with the movement.
+
+These tests read the JavaScript as text and compare it with the Python source
+of truth, so the drift is caught here rather than discovered in a comparison
+that quietly means nothing.
+"""
+
+from __future__ import annotations
+
+import json
+import re
+from pathlib import Path
+
+import pytest
+
+from src.pose.adapters.mediapipe_adapter import MEDIAPIPE_LANDMARK_MAP
+from src.pose.models import MEASURED_LANDMARKS, PoseFrame
+from src.recording.pose_recorder import PoseStreamMetadata
+from src.replay.pose_replay import read_pose_stream
+from src.version import APPLICATION_VERSION, POSE_STREAM_FORMAT_VERSION
+
+WEB = Path(__file__).resolve().parents[2] / "web"
+
+pytestmark = pytest.mark.skipif(
+    not WEB.exists(), reason="browser sandbox not present"
+)
+
+
+def read(name: str) -> str:
+    return (WEB / name).read_text(encoding="utf-8")
+
+
+def js_landmark_map() -> dict[int, str]:
+    """Extract MEDIAPIPE_LANDMARK_MAP from the JavaScript."""
+    source = read("canonical.js")
+    block = re.search(
+        r"export const MEDIAPIPE_LANDMARK_MAP = \{(.*?)\n\};", source, re.S
+    )
+    assert block, "MEDIAPIPE_LANDMARK_MAP not found in canonical.js"
+    constants = dict(
+        re.findall(r'export const (\w+) = "([\w_]+)";', source)
+    )
+    mapping: dict[int, str] = {}
+    for index, name in re.findall(r"(\d+):\s*([A-Z_]+)", block.group(1)):
+        assert name in constants, f"{name} is used but not defined in canonical.js"
+        mapping[int(index)] = constants[name]
+    return mapping
+
+
+class TestLandmarkMapParity:
+    def test_the_index_map_matches_python_exactly(self):
+        assert js_landmark_map() == MEDIAPIPE_LANDMARK_MAP
+
+    def test_every_measured_landmark_is_named_in_the_javascript(self):
+        source = read("canonical.js")
+        names = set(re.findall(r'export const \w+ = "([\w_]+)";', source))
+        assert set(MEASURED_LANDMARKS) <= names
+
+    def test_the_javascript_declares_the_same_measured_set(self):
+        source = read("canonical.js")
+        block = re.search(
+            r"export const MEASURED_LANDMARKS = \[(.*?)\n\];", source, re.S
+        )
+        assert block
+        constants = dict(re.findall(r'export const (\w+) = "([\w_]+)";', source))
+        declared = {
+            constants[token]
+            for token in re.findall(r"\b([A-Z][A-Z_]+)\b", block.group(1))
+            if token in constants
+        }
+        assert declared == set(MEASURED_LANDMARKS)
+
+
+class TestVersionParity:
+    def test_application_version_matches(self):
+        source = read("version.js")
+        found = re.search(r'APPLICATION_VERSION = "([^"]+)"', source)
+        assert found and found.group(1) == APPLICATION_VERSION
+
+    def test_pose_stream_format_version_matches(self):
+        # A browser recording claiming a different format version could not be
+        # treated the same way by the reader.
+        source = read("version.js")
+        found = re.search(r'POSE_STREAM_FORMAT_VERSION = "([^"]+)"', source)
+        assert found and found.group(1) == POSE_STREAM_FORMAT_VERSION
+
+
+class TestRecordingInteroperability:
+    """A browser-shaped recording must be readable by the Python reader."""
+
+    @staticmethod
+    def browser_jsonl() -> str:
+        """The exact shape web/recorder.js produces."""
+        metadata = {
+            "record": "metadata",
+            "recording_id": "web_20260817_101500",
+            "recording_date": "2026-08-17T10:15:00.000Z",
+            "application_version": APPLICATION_VERSION,
+            "pose_engine": "mediapipe_tasks_vision",
+            "pose_model_version": "pose_landmarker_lite.task",
+            "pose_engine_detail": "Mozilla/5.0 …",
+            "camera_view": "frontal",
+            "nominal_resolution": "1280x720",
+            "nominal_fps": 29.7,
+            "measured_fps": 29.7,
+            "source": {
+                "kind": "browser_camera",
+                "description": "browser:getUserMedia",
+                "width": 1280,
+                "height": 720,
+                "measured_fps": 29.7,
+                "effective_fps": 29.7,
+            },
+            "format_version": POSE_STREAM_FORMAT_VERSION,
+            "notes": "",
+        }
+        lines = [json.dumps(metadata)]
+        for index in range(5):
+            pose = {
+                "timestamp_ms": index * 33.6,
+                "person_confidence": 0.91,
+                "source": "mediapipe_tasks_vision:browser",
+                "frame_index": index,
+                "image_width": 1280,
+                "image_height": 720,
+                "landmarks": {
+                    "left_hip": {
+                        "x": 0.47, "y": 0.55, "z": -0.1, "confidence": 0.95,
+                    },
+                    "right_hip": {
+                        "x": 0.53, "y": 0.55, "z": None, "confidence": 0.93,
+                    },
+                },
+            }
+            lines.append(json.dumps({"record": "frame", "pose": pose}))
+        return "\n".join(lines) + "\n"
+
+    def test_the_python_reader_accepts_a_browser_recording(self, tmp_path):
+        path = tmp_path / "web_20260817_101500.jsonl"
+        path.write_text(self.browser_jsonl(), encoding="utf-8")
+        metadata, records = read_pose_stream(path)
+        assert isinstance(metadata, PoseStreamMetadata)
+        assert len(records) == 5
+        assert all(isinstance(r.pose, PoseFrame) for r in records)
+
+    def test_the_engine_is_distinguishable_from_the_python_one(self):
+        # Comparing runtimes is the point, so a recording must say which
+        # produced it.
+        metadata, _ = self._read(self.browser_jsonl())
+        assert metadata.pose_engine == "mediapipe_tasks_vision"
+        assert metadata.pose_model_version == "pose_landmarker_lite.task"
+
+    def test_the_measured_frame_rate_survives(self):
+        metadata, _ = self._read(self.browser_jsonl())
+        assert metadata.measured_fps == pytest.approx(29.7)
+        assert metadata.effective_fps == pytest.approx(29.7)
+
+    def test_landmarks_and_missing_depth_survive(self):
+        _, records = self._read(self.browser_jsonl())
+        pose = records[0].pose
+        assert pose.get("left_hip").z == pytest.approx(-0.1)
+        assert pose.get("right_hip").z is None
+        assert pose.person_confidence == pytest.approx(0.91)
+
+    @staticmethod
+    def _read(text: str):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "r.jsonl"
+            path.write_text(text, encoding="utf-8")
+            return read_pose_stream(path)
+
+
+class TestScope:
+    def test_the_spike_does_not_reimplement_the_exercise_layer(self):
+        # Document 03 §7 and ADR-010: do not build both implementations at
+        # once. If these names appear in the browser code, the spike has
+        # quietly become a port and the decision should be explicit.
+        forbidden = ("StsState", "sit_to_stand", "SitToStand", "rep_completed")
+        for file in WEB.glob("*.js"):
+            source = file.read_text(encoding="utf-8")
+            for name in forbidden:
+                assert name not in source, (
+                    f"{file.name} references {name}; the browser spike is "
+                    "turning into a port of the exercise engine"
+                )

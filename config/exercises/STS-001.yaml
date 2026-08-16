@@ -42,9 +42,22 @@ repetition:
   maximum_rep_seconds: 20.0
 
 quality:
-  # Descent quicker than this raises a movement-quality flag. A cue about
-  # control, not a safety judgement.
-  rapid_descent_seconds: 0.5
+  # Descent speed is confounded by how quickly a given person moves, so the
+  # flag is participant-relative, like calibration. An absolute 0.5s flagged
+  # 11 of 12 repetitions in a session of deliberately SLOW sit-to-stands,
+  # where descents ran 0.23 to 1.60s. A flag that fires on almost everything
+  # discriminates nothing.
+  #
+  # Absolute floor: flagged regardless of the participant's usual pace.
+  rapid_descent_seconds: 0.20
+  # And flagged when below this fraction of the participant's own median
+  # descent, which is what dropping into the chair actually looks like.
+  rapid_descent_ratio: 0.6
+  # Descents needed before the relative rule applies. Early repetitions have
+  # no baseline and are not flagged, which is the conservative direction.
+  rapid_descent_minimum_samples: 3
+  #
+  # This stays a Level 2 measure: computable, not validated (Document 04).
 
 calibration:
   # Hip excursion that must be observed before calibration is accepted.

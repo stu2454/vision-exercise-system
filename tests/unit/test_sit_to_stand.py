@@ -489,3 +489,61 @@ class TestDeterminism:
         engine.initialise(CALIBRATION)
         assert engine.valid_repetitions == 0
         assert engine.state is StsState.NO_PERSON
+
+
+class TestRapidDescentIsRelative:
+    """The flag must discriminate, which means firing sometimes and not always.
+
+    An absolute 0.5s threshold flagged 11 of 12 repetitions in a session of
+    deliberately slow sit-to-stands. Descent speed is confounded by how
+    quickly a person moves, so the rule is participant-relative.
+    """
+
+    @staticmethod
+    def _session(engine, descents: list[int]) -> Session:
+        """Repetitions whose descent ramps take the given frame counts."""
+        session = Session(engine).feed(SEATED_HEIGHT, 5)
+        for frames in descents:
+            session.ramp(SEATED_HEIGHT, STANDING_HEIGHT, 24)
+            session.feed(STANDING_HEIGHT, 12)
+            session.ramp(STANDING_HEIGHT, SEATED_HEIGHT, frames)
+            session.feed(SEATED_HEIGHT, 12)
+        return session
+
+    def test_consistent_descents_are_not_flagged(self):
+        engine = calibrated_engine()
+        self._session(engine, [24] * 6)
+        assert engine.result().quality_flags.get("rapid_descent", 0) == 0
+
+    def test_a_descent_much_faster_than_the_participants_own_is_flagged(self):
+        # Slow descents establish a baseline, then a much quicker one. The
+        # quick descent is 0.167s, comfortably above the 0.20s absolute
+        # floor is not -- so raise the floor out of the way to isolate the
+        # relative rule, which is the part under test.
+        engine = calibrated_engine(StsConfig(rapid_descent_seconds=0.0))
+        self._session(engine, [48, 48, 48, 48, 12])
+        assert engine.result().quality_flags.get("rapid_descent", 0) >= 1
+
+    def test_early_repetitions_are_not_flagged_without_a_baseline(self):
+        # Nothing to compare against yet, so no flag: the conservative
+        # direction. The floor is lowered so only the relative rule could
+        # fire, and it must not.
+        engine = calibrated_engine(StsConfig(rapid_descent_seconds=0.0))
+        self._session(engine, [12, 48])
+        flagged = engine.result().repetitions[0].get("quality_flags", [])
+        assert "rapid_descent" not in flagged
+
+    def test_consistent_slow_descents_are_not_flagged_either(self):
+        # The failure being fixed: an absolute 0.5s threshold flagged 11 of
+        # 12 repetitions in a session of deliberately slow sit-to-stands.
+        engine = calibrated_engine(StsConfig(rapid_descent_seconds=0.0))
+        self._session(engine, [48] * 6)
+        assert engine.result().quality_flags.get("rapid_descent", 0) == 0
+
+    def test_the_absolute_floor_still_applies(self):
+        engine = calibrated_engine(
+            StsConfig(minimum_dwell_ms=0.0, rapid_descent_seconds=1.0,
+                      minimum_rep_seconds=0.3)
+        )
+        self._session(engine, [4])
+        assert engine.result().quality_flags.get("rapid_descent", 0) == 1

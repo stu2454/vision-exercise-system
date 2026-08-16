@@ -125,8 +125,30 @@ class StsConfig:
             a human and are rejected as detection artefacts.
         maximum_rep_seconds: Beyond this the movement is treated as abandoned
             rather than a very slow repetition.
-        rapid_descent_seconds: Descent quicker than this raises a quality
-            flag. A cue about control, not a safety judgement.
+        rapid_descent_seconds: Absolute floor below which a descent is
+            flagged regardless of the participant's usual pace.
+        rapid_descent_ratio: Fraction of the participant's own median
+            descent below which a descent is flagged.
+
+            An absolute threshold alone does not work. At 0.5 seconds it
+            flagged 11 of 12 repetitions in a session of deliberately slow
+            sit-to-stands, where descents ran 0.23 to 1.60 seconds with a
+            median near 0.37. A flag that fires on almost everything
+            discriminates nothing.
+
+            Descent speed is confounded by how quickly a given person moves,
+            so the flag is participant-relative, like calibration: it marks a
+            descent unusually fast *for this participant*, which is what
+            "dropping into the chair" actually looks like. Document 05 §10
+            describes the cue as being for descent that is *repeatedly* very
+            rapid, so the session-level mean descent time is reported
+            alongside, and is the better basis for that judgement.
+
+            This remains a Level 2 measure: computable, not validated
+            (Document 04, CLAUDE.md §10).
+        rapid_descent_minimum_samples: Completed descents needed before the
+            relative rule applies. Early repetitions have no baseline and are
+            not flagged, which is the conservative direction.
         calibration_minimum_travel: Hip excursion that must be observed before
             calibration is accepted.
         calibration_method: "cluster" splits observed heights into seated and
@@ -192,7 +214,9 @@ class StsConfig:
 
     minimum_rep_seconds: float = 0.8
     maximum_rep_seconds: float = 20.0
-    rapid_descent_seconds: float = 0.5
+    rapid_descent_seconds: float = 0.20
+    rapid_descent_ratio: float = 0.6
+    rapid_descent_minimum_samples: int = 3
 
     calibration_minimum_travel: float = 0.04
     calibration_low_percentile: float = 0.05
@@ -553,7 +577,7 @@ class SitToStandEngine(ExerciseEngine):
         descent_from = rep.descent_started_ms if rep.descent_started_ms else rep.stood_ms
         descent_s = (now - descent_from) / 1000.0
         events: list[Event] = []
-        if descent_s < self._config.rapid_descent_seconds:
+        if self._is_rapid_descent(descent_s):
             rep.flags.append("rapid_descent")
             events.append(
                 self._event(
@@ -576,6 +600,20 @@ class SitToStandEngine(ExerciseEngine):
                 )
             )
         return events
+
+    def _is_rapid_descent(self, descent_s: float) -> bool:
+        """Whether this descent was unusually fast for this participant."""
+        config = self._config
+        if descent_s < config.rapid_descent_seconds:
+            return True
+        previous = [
+            (r.completed_ms - r.descent_started_ms) / 1000.0
+            for r in self._completed
+            if r.completed_ms is not None and r.descent_started_ms is not None
+        ]
+        if len(previous) < config.rapid_descent_minimum_samples:
+            return False
+        return descent_s < _median(sorted(previous)) * config.rapid_descent_ratio
 
     def _partial_repetition(self, now: float) -> list[Event]:
         rep = self._current

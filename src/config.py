@@ -95,14 +95,24 @@ class GestureConfig:
     Attributes:
         start_hold_ms: How long one raised arm must be held to begin.
         stop_hold_ms: How long both raised arms must be held to finish.
-            Longer than the start hold, because a stop firing by accident
-            ends the attempt while a start firing by accident costs a
-            moment. Not much longer, though: a participant held both arms
-            up for 1.49 seconds against a 1.50 second threshold and the
-            gesture did not fire, while across that whole 118 second
-            session both arms qualified accidentally for a total of 0.06
-            seconds. The risk being guarded against is far smaller than the
-            guard was.
+
+            Shorter than the start hold, which is the opposite of what it
+            was first set to. The reasoning behind the longer value was that
+            a stop firing by accident ends the attempt, so it should demand
+            more deliberation. The measurements say the deliberateness comes
+            from the gesture itself, not from its duration: raising *both*
+            arms is far stronger evidence of intent than raising one, and it
+            qualified accidentally for 0.06 seconds across a 118 second
+            session and not at all across a 77 second one.
+
+            Meanwhile the long hold failed twice in practice. The
+            participant held both arms for 1.49 seconds against a 1.50
+            second threshold, then 1.00 seconds against a 1.00 second
+            threshold, and each time gave up and reached for the keyboard --
+            the exact thing the gesture exists to avoid.
+
+            So the single-arm start, being the weaker signal, carries the
+            longer hold.
         minimum_elbow_angle: Least elbow angle counting as a bent arm.
         maximum_elbow_angle: Greatest elbow angle counting as a bent arm.
         minimum_confidence: Least landmark confidence to judge an arm.
@@ -111,7 +121,7 @@ class GestureConfig:
     """
 
     start_hold_ms: float = 800.0
-    stop_hold_ms: float = 1000.0
+    stop_hold_ms: float = 600.0
     minimum_elbow_angle: float = 50.0
     maximum_elbow_angle: float = 130.0
     minimum_confidence: float = 0.60
@@ -237,7 +247,11 @@ def load_sts_config(path: Path | str | None = None) -> "StsConfig":
             minimum_rise_velocity=float(machine.get("minimum_rise_velocity", 0.02)),
             minimum_rep_seconds=float(repetition.get("minimum_rep_seconds", 0.8)),
             maximum_rep_seconds=float(repetition.get("maximum_rep_seconds", 20.0)),
-            rapid_descent_seconds=float(quality.get("rapid_descent_seconds", 0.5)),
+            rapid_descent_seconds=float(quality.get("rapid_descent_seconds", 0.20)),
+            rapid_descent_ratio=float(quality.get("rapid_descent_ratio", 0.6)),
+            rapid_descent_minimum_samples=int(
+                quality.get("rapid_descent_minimum_samples", 3)
+            ),
             calibration_minimum_travel=float(calibration.get("minimum_travel", 0.04)),
             calibration_low_percentile=float(calibration.get("low_percentile", 0.05)),
             calibration_high_percentile=float(calibration.get("high_percentile", 0.95)),

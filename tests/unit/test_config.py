@@ -138,17 +138,22 @@ class TestPathResolution:
 
 
 class TestGestureConfig:
-    def test_the_stop_hold_is_longer_than_the_start_hold(self):
-        # A stop firing by accident ends the attempt; a start firing by
-        # accident costs a moment.
+    def test_the_weaker_gesture_carries_the_longer_hold(self):
+        # One raised arm is weaker evidence of intent than two, so it is the
+        # start that needs the longer hold. Both arms raised together
+        # qualified accidentally for 0.06s across a 118 second session and
+        # not at all across a 77 second one, while the long stop hold failed
+        # twice in practice and sent the participant to the keyboard.
         gestures = AppConfig().gestures
-        assert gestures.stop_hold_ms > gestures.start_hold_ms
+        assert gestures.start_hold_ms > gestures.stop_hold_ms
 
     def test_the_stop_hold_is_within_what_a_person_actually_holds(self):
-        # Measured: a participant held both arms for 1.49s against a 1.50s
-        # threshold and the gesture did not fire. Across that whole 118
-        # second session, both arms qualified accidentally for 0.06s.
-        assert AppConfig().gestures.stop_hold_ms <= 1200.0
+        # Measured twice: both arms held for 1.49s against a 1.50s
+        # threshold, then 1.00s against a 1.00s threshold. Both missed.
+        # Accidental qualification totalled 0.06s across 118 seconds and
+        # none at all across 77 seconds, so the guard was far larger than
+        # the risk.
+        assert AppConfig().gestures.stop_hold_ms <= 800.0
 
     def test_start_and_stop_configs_differ_only_in_hold(self):
         gestures = AppConfig().gestures
@@ -171,4 +176,5 @@ class TestGestureConfig:
     def test_the_shipped_configuration_keeps_the_holds_usable(self):
         gestures = load_config(DEFAULT_CONFIG_PATH).gestures
         assert 300.0 <= gestures.start_hold_ms <= 1200.0
-        assert gestures.start_hold_ms < gestures.stop_hold_ms <= 1200.0
+        assert gestures.stop_hold_ms <= 800.0
+        assert gestures.stop_hold_ms >= 400.0, "too short to be deliberate"

@@ -94,10 +94,13 @@ gestures:
   # One raised arm bent at the elbow begins; both raised arms finish.
   start_hold_ms: 800.0
   # Longer than the start hold, because a stop firing by accident ends the
-  # attempt. Only a little longer: a participant held both arms for 1.49s
-  # against a 1.50s threshold and it did not fire, while across that whole
-  # 118 second session both arms qualified accidentally for 0.06s in total.
-  stop_hold_ms: 1000.0
+  # attempt -- but only a little. Two sessions were measured: the
+  # participant held both arms for 1.49s against a 1.50s threshold, then
+  # 1.00s against a 1.00s threshold, missing both times and reaching for
+  # the keyboard. Meanwhile both arms qualified accidentally for 0.06s
+  # across 118 seconds, and not at all across 77 seconds. The guard was
+  # far larger than the risk it guarded against.
+  stop_hold_ms: 600.0
   minimum_elbow_angle: 50.0
   maximum_elbow_angle: 130.0
   minimum_confidence: 0.60

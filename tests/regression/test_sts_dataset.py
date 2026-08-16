@@ -21,13 +21,21 @@ from src.evaluation import (
     load_cases,
 )
 
-MINIMUM_COUNT_ACCURACY = 90.0
+MINIMUM_COUNT_ACCURACY = 93.0
 """Floor, not a target.
 
-The engineering target is 95% (Document 03 §49). The floor is set below the
-current 93.9% so that an improvement raises it deliberately rather than a
-regression sliding under it unnoticed. Two of the current misses are
-calibration repetitions in recordings made before the start gesture existed.
+The engineering target of 95% (Document 03 §49) is currently met, at 95.6%
+across 45 repetitions with no false positives. The floor sits below that so
+an improvement raises it deliberately, rather than a regression sliding under
+it unnoticed. One further miss would cost roughly 2.2 percentage points, so
+this permits one and no more.
+
+Both remaining misses are calibration repetitions in recordings made before
+the start gesture existed. Neither gesture-delimited recording loses any.
+
+The figure still describes four takes by one participant. Meeting a target on
+this dataset is not evidence the algorithm is good, only that it has not got
+worse on what has been recorded so far.
 """
 
 

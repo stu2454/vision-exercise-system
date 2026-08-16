@@ -46,13 +46,21 @@ error (Document 03 §49).
 
 ## On recalled counts
 
-`sts_frontal_001` records 12 repetitions where the participant remembered 10.
-Hip height showed 12 cycles at metronomic 3.1–3.3 s spacing, knee angle
-independently corroborated 11 of them, and all 12 reached the same standing
-height to within a standard deviation of 0.0046.
+Recalled counts have been wrong twice in this dataset, in opposite directions.
 
-Recalled counts are not ground truth. Where a case disagrees with memory, the
-evidence for the number belongs in `notes`.
+`sts_frontal_001` records 12 where the participant remembered 10. Hip height
+showed 12 cycles at metronomic 3.1–3.3 s spacing, knee angle independently
+corroborated 11 of them, and all 12 reached the same standing height to within
+a standard deviation of 0.0046.
+
+`sts_slow_001` records 12 where the participant reported 11, having counted
+their repetitions but not the first one, which they thought of as calibration.
+It was a full sit-to-stand like the others.
+
+Counting while exercising is unreliable. Where a case disagrees with memory,
+the evidence for the number belongs in `notes`, and a disputed count should
+not be recorded until it is resolved. Recording video makes this decidable by
+watching rather than by inference.
 
 ## What this dataset still lacks
 
@@ -61,5 +69,10 @@ this one has almost none yet. Missing: slow and fast repetitions, pauses
 mid-movement, partial stands, hand support, chair variation, occlusion, poor
 lighting, a participant partly out of frame, and more than one person.
 
-Until those exist, a passing run says the algorithm has not regressed on three
-clean takes by one person. It does not say the algorithm is good.
+`sts_slow_001` is the first case with any deliberate variation: three fast
+repetitions, two slow, seven medium. It is also the case that exposed
+`rapid_descent` as measuring the wrong thing. Cases the algorithm handles
+badly are the valuable ones.
+
+Until the rest exist, a passing run says the algorithm has not regressed on
+four takes by one person. It does not say the algorithm is good.

@@ -10,8 +10,9 @@ Canonical PoseFrame adapter, pose quality, record and replay, temporal
 filtering and movement features, the STS-001 sit-to-stand state machine, and
 the ground-truth regression harness.
 
-Current standing on the regression dataset: 31 of 33 repetitions, 93.9% count
-agreement, zero false positives.
+Current standing on the regression dataset: 43 of 45 repetitions, 95.6% count
+agreement, zero false positives — across four takes by one participant, which
+is not yet evidence of much.
 
 Next is Build 7 (participant feedback).
 

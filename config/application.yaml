@@ -89,6 +89,21 @@ features:
   # frames were dropped, and the result would not describe real movement.
   maximum_elapsed_ms: 250.0
 
+gestures:
+  # The participant starts and finishes without touching the keyboard.
+  # One raised arm bent at the elbow begins; both raised arms finish.
+  start_hold_ms: 800.0
+  # Longer than the start hold, because a stop firing by accident ends the
+  # attempt. Only a little longer: a participant held both arms for 1.49s
+  # against a 1.50s threshold and it did not fire, while across that whole
+  # 118 second session both arms qualified accidentally for 0.06s in total.
+  stop_hold_ms: 1000.0
+  minimum_elbow_angle: 50.0
+  maximum_elbow_angle: 130.0
+  minimum_confidence: 0.60
+  # Pause between the start signal and the first measurement.
+  settle_seconds: 3.0
+
 recording:
   directory: recordings
   # Video recording is always an explicit developer action (CLAUDE.md §28).

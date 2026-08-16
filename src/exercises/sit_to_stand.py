@@ -202,6 +202,7 @@ class StsConfig:
     calibration_refine: bool = True
     calibration_refine_interval_frames: int = 15
     calibration_reset_after_suspension_ms: float = 1000.0
+    calibration_report_change: float = 0.05
     calibration_method: str = "cluster"
     calibration_cluster_minimum_samples: int = 30
 
@@ -724,7 +725,8 @@ class SitToStandEngine(ExerciseEngine):
         estimate = self._estimate()
         if estimate is None:
             return []
-        if estimate.to_dict() == self._calibration.to_dict():
+        previous = self._calibration
+        if estimate.to_dict() == previous.to_dict():
             return []
         # Replaces in either direction. An earlier "only widen" rule was
         # needed while calibration came from percentiles, where a shallow
@@ -734,6 +736,14 @@ class SitToStandEngine(ExerciseEngine):
         # including when it is narrower, which is exactly what corrects a
         # range inflated by walking about.
         self._calibration = estimate
+        # Refinement runs several times a second, and almost every run shifts
+        # the estimate a little. Announcing each one buried the event stream
+        # in 68 calibration events for a single session, so only a material
+        # change is reported. The calibration itself always updates.
+        if previous.travel > 0:
+            change = abs(estimate.travel - previous.travel) / previous.travel
+            if change < self._config.calibration_report_change:
+                return []
         return [self._event(EventType.CALIBRATED, now, payload=estimate.to_dict())]
 
     # ------------------------------------------------------------- quality

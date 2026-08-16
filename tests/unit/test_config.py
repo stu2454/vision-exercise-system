@@ -135,3 +135,40 @@ class TestPathResolution:
         path = tmp_path / "application.yaml"
         path.write_text(f"pose:\n  model_path: {tmp_path / 'm.task'}\n", encoding="utf-8")
         assert load_config(path).pose.resolved_model_path() == tmp_path / "m.task"
+
+
+class TestGestureConfig:
+    def test_the_stop_hold_is_longer_than_the_start_hold(self):
+        # A stop firing by accident ends the attempt; a start firing by
+        # accident costs a moment.
+        gestures = AppConfig().gestures
+        assert gestures.stop_hold_ms > gestures.start_hold_ms
+
+    def test_the_stop_hold_is_within_what_a_person_actually_holds(self):
+        # Measured: a participant held both arms for 1.49s against a 1.50s
+        # threshold and the gesture did not fire. Across that whole 118
+        # second session, both arms qualified accidentally for 0.06s.
+        assert AppConfig().gestures.stop_hold_ms <= 1200.0
+
+    def test_start_and_stop_configs_differ_only_in_hold(self):
+        gestures = AppConfig().gestures
+        start, stop = gestures.start_config(), gestures.stop_config()
+        assert start.hold_ms != stop.hold_ms
+        assert start.minimum_elbow_angle == stop.minimum_elbow_angle
+        assert start.minimum_confidence == stop.minimum_confidence
+
+    def test_gesture_settings_load_from_configuration(self, tmp_path):
+        path = tmp_path / "application.yaml"
+        path.write_text(
+            "gestures:\n  start_hold_ms: 500.0\n  stop_hold_ms: 900.0\n",
+            encoding="utf-8",
+        )
+        config = load_config(path)
+        assert config.gestures.start_hold_ms == pytest.approx(500.0)
+        assert config.gestures.start_config().hold_ms == pytest.approx(500.0)
+        assert config.gestures.stop_config().hold_ms == pytest.approx(900.0)
+
+    def test_the_shipped_configuration_keeps_the_holds_usable(self):
+        gestures = load_config(DEFAULT_CONFIG_PATH).gestures
+        assert 300.0 <= gestures.start_hold_ms <= 1200.0
+        assert gestures.start_hold_ms < gestures.stop_hold_ms <= 1200.0

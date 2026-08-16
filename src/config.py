@@ -89,6 +89,56 @@ class PoseConfig:
 
 
 @dataclass(frozen=True)
+class GestureConfig:
+    """Participant-initiated start and stop signals.
+
+    Attributes:
+        start_hold_ms: How long one raised arm must be held to begin.
+        stop_hold_ms: How long both raised arms must be held to finish.
+            Longer than the start hold, because a stop firing by accident
+            ends the attempt while a start firing by accident costs a
+            moment. Not much longer, though: a participant held both arms
+            up for 1.49 seconds against a 1.50 second threshold and the
+            gesture did not fire, while across that whole 118 second
+            session both arms qualified accidentally for a total of 0.06
+            seconds. The risk being guarded against is far smaller than the
+            guard was.
+        minimum_elbow_angle: Least elbow angle counting as a bent arm.
+        maximum_elbow_angle: Greatest elbow angle counting as a bent arm.
+        minimum_confidence: Least landmark confidence to judge an arm.
+        settle_seconds: Pause between the start signal and the first
+            measurement, to lower the arm and stand still.
+    """
+
+    start_hold_ms: float = 800.0
+    stop_hold_ms: float = 1000.0
+    minimum_elbow_angle: float = 50.0
+    maximum_elbow_angle: float = 130.0
+    minimum_confidence: float = 0.60
+    settle_seconds: float = 3.0
+
+    def start_config(self) -> "ArmRaiseConfig":
+        from src.movement.gestures import ArmRaiseConfig
+
+        return ArmRaiseConfig(
+            minimum_elbow_angle=self.minimum_elbow_angle,
+            maximum_elbow_angle=self.maximum_elbow_angle,
+            minimum_confidence=self.minimum_confidence,
+            hold_ms=self.start_hold_ms,
+        )
+
+    def stop_config(self) -> "ArmRaiseConfig":
+        from src.movement.gestures import ArmRaiseConfig
+
+        return ArmRaiseConfig(
+            minimum_elbow_angle=self.minimum_elbow_angle,
+            maximum_elbow_angle=self.maximum_elbow_angle,
+            minimum_confidence=self.minimum_confidence,
+            hold_ms=self.stop_hold_ms,
+        )
+
+
+@dataclass(frozen=True)
 class RecordingConfig:
     """Development recording settings.
 
@@ -114,6 +164,7 @@ class AppConfig:
     pose_quality: PoseQualityConfig = field(default_factory=PoseQualityConfig)
     filtering: FilterSettings = field(default_factory=FilterSettings)
     features: FeatureConfig = field(default_factory=FeatureConfig)
+    gestures: GestureConfig = field(default_factory=GestureConfig)
     recording: RecordingConfig = field(default_factory=RecordingConfig)
     log_level: str = "INFO"
 
@@ -244,6 +295,7 @@ def load_config(path: Path | str | None = None) -> AppConfig:
         pose_quality=_build(PoseQualityConfig, quality_data, "pose_quality"),
         filtering=_build(FilterSettings, _section(raw, "filtering"), "filtering"),
         features=_build(FeatureConfig, _section(raw, "features"), "features"),
+        gestures=_build(GestureConfig, _section(raw, "gestures"), "gestures"),
         recording=_build(RecordingConfig, _section(raw, "recording"), "recording"),
         log_level=str(_section(raw, "application").get("log_level", "INFO")),
     )

@@ -49,7 +49,7 @@ from src.movement.features import (
     FeatureExtractor,
 )
 from src.movement.filtering import PoseFilter
-from src.movement.gestures import ArmRaiseConfig, ArmRaiseDetector
+from src.movement.gestures import ArmRaiseDetector
 from src.pose.adapters.mediapipe_adapter import MediaPipePoseEngine
 from src.pose.base import PoseEngine, PoseEngineError
 from src.pose.quality import PoseQualityAssessor
@@ -445,11 +445,15 @@ def command_exercise(args: argparse.Namespace, config: AppConfig) -> int:
     engine = build_pose_engine(config)
     exercise = SitToStandEngine(sts_config)
     exercise.initialise()
-    start_gesture = None if args.no_start_gesture else ArmRaiseDetector()
+    start_gesture = (
+        None
+        if args.no_start_gesture
+        else ArmRaiseDetector(config.gestures.start_config())
+    )
     stop_gesture = (
         None
         if args.no_start_gesture
-        else ArmRaiseDetector(ArmRaiseConfig(hold_ms=1500.0), required_arms=2)
+        else ArmRaiseDetector(config.gestures.stop_config(), required_arms=2)
     )
 
     with source, engine:
@@ -472,7 +476,11 @@ def command_exercise(args: argparse.Namespace, config: AppConfig) -> int:
             exercise=exercise,
             start_gesture=start_gesture,
             stop_gesture=stop_gesture,
-            settle_ms=args.settle_seconds * 1000.0,
+            settle_ms=(
+                args.settle_seconds
+                if args.settle_seconds is not None
+                else config.gestures.settle_seconds
+            ) * 1000.0,
         )
     exercise.stop()
     _print_result(exercise.result(), args.json)
@@ -497,10 +505,42 @@ def command_score(args: argparse.Namespace, config: AppConfig) -> int:
     exercise = SitToStandEngine(sts_config)
     exercise.initialise()
 
+    # The same gesture gate the live run applied. Without it a recording made
+    # with gestures replays differently from the session that produced it,
+    # which would defeat the point of replay being the reproducible path.
+    gestures = config.gestures
+    start_gesture = (
+        None if args.no_start_gesture else ArmRaiseDetector(gestures.start_config())
+    )
+    stop_gesture = (
+        None
+        if args.no_start_gesture
+        else ArmRaiseDetector(gestures.stop_config(), required_arms=2)
+    )
+    awaiting_start = start_gesture is not None
+    settle_until_ms: Optional[float] = None
+    started_at_ms: Optional[float] = None
+    stopped_at_ms: Optional[float] = None
+
     events: list[Event] = []
     with PoseStreamSource(args.path) as stream:
         metadata = stream.metadata
         for pose in stream.poses():
+            if awaiting_start and start_gesture is not None:
+                if settle_until_ms is None:
+                    if start_gesture.update(pose).triggered:
+                        settle_until_ms = (
+                            pose.timestamp_ms + gestures.settle_seconds * 1000.0
+                        )
+                elif pose.timestamp_ms >= settle_until_ms:
+                    exercise.initialise()
+                    awaiting_start = False
+                    started_at_ms = pose.timestamp_ms
+                if awaiting_start:
+                    continue
+            if stop_gesture is not None and stop_gesture.update(pose).triggered:
+                stopped_at_ms = pose.timestamp_ms
+                break
             quality = assessor.assess(pose)
             features = extractor.update(pose_filter.apply(pose))
             events.extend(exercise.update(pose, features, quality))
@@ -509,6 +549,10 @@ def command_score(args: argparse.Namespace, config: AppConfig) -> int:
     result = exercise.result()
     print(f"Recording   {metadata.recording_id}   view {metadata.camera_view}")
     print(f"Algorithm   STS-001 {result.exercise_algorithm_version}")
+    if start_gesture is not None:
+        began = "not detected" if started_at_ms is None else f"{started_at_ms / 1000:.1f}s"
+        ended = "not detected" if stopped_at_ms is None else f"{stopped_at_ms / 1000:.1f}s"
+        print(f"Gestures    start {began}   stop {ended}")
     print()
     for event_type in _LOGGED_EVENTS:
         count = sum(1 for e in events if e.event is event_type)
@@ -783,7 +827,7 @@ def build_parser() -> argparse.ArgumentParser:
     exercise.add_argument(
         "--settle-seconds",
         type=float,
-        default=3.0,
+        default=None,
         help="Pause between the start signal and the first measurement.",
     )
     exercise.add_argument("--json", action="store_true", help="Print the result as JSON.")
@@ -804,6 +848,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     score.add_argument(
         "--exercise-config", type=Path, default=None, help="STS-001 configuration file."
+    )
+    score.add_argument(
+        "--no-start-gesture",
+        action="store_true",
+        help="Score the whole recording instead of the gesture-delimited part.",
     )
     score.add_argument("--json", action="store_true", help="Print the result as JSON.")
     score.set_defaults(handler=command_score)

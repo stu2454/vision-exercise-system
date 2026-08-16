@@ -190,7 +190,14 @@ def load_sts_config(path: Path | str | None = None) -> "StsConfig":
             calibration_minimum_travel=float(calibration.get("minimum_travel", 0.04)),
             calibration_low_percentile=float(calibration.get("low_percentile", 0.05)),
             calibration_high_percentile=float(calibration.get("high_percentile", 0.95)),
-            calibration_window=int(calibration.get("window_frames", 900)),
+            calibration_window=int(calibration.get("window_frames", 300)),
+            calibration_method=str(calibration.get("method", "cluster")),
+            calibration_cluster_minimum_samples=int(
+                calibration.get("cluster_minimum_samples", 30)
+            ),
+            calibration_refine_interval_frames=int(
+                calibration.get("refine_interval_frames", 15)
+            ),
             quality_recovery_frames=int(pose_quality.get("recovery_frames", 5)),
         )
     except (TypeError, ValueError) as exc:

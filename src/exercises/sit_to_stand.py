@@ -129,11 +129,38 @@ class StsConfig:
             flag. A cue about control, not a safety judgement.
         calibration_minimum_travel: Hip excursion that must be observed before
             calibration is accepted.
+        calibration_method: "cluster" splits observed heights into seated and
+            standing clusters and takes each median; "percentile" uses the
+            percentiles below. Cluster is the default because percentiles
+            cannot separate repetitions from walking about, and a
+            participant who walked to and from the camera inflated the
+            percentile spread to 0.247 against a true travel of 0.137,
+            causing every repetition to be missed.
+        calibration_cluster_minimum_samples: Frames needed before clustering
+            is used; below this the percentile estimate is used instead.
         calibration_low_percentile: Percentile of observed hip height taken as
-            seated. Percentiles rather than min/max, because a single
-            outlier frame otherwise defines the whole scale.
+            seated, when the percentile method is in use.
         calibration_high_percentile: Percentile taken as standing.
-        calibration_window: Frames retained for calibration.
+        calibration_window: Frames retained for calibration, oldest first
+            discarded. A trailing window rather than the whole session: a
+            participant who spends the first fifteen seconds elsewhere in
+            the room would otherwise have that position treated as their
+            seated reference for the rest of the attempt, which is exactly
+            what happened on a real recording and left every repetition
+            uncounted. Ten seconds at 30 fps spans about three repetitions,
+            enough to see both postures while letting stale data age out.
+        calibration_refine_interval_frames: How often calibration may be
+            recomputed while no repetition is in progress. Refining only on
+            return to sitting is not enough: a badly calibrated engine never
+            reaches sitting, so it could never correct itself.
+        calibration_reset_after_suspension_ms: Tracking loss longer than this
+            discards the heights gathered so far. Hip height in image units
+            says nothing about position in the room, so once the participant
+            has been out of view long enough to have moved, earlier
+            observations are not comparable with later ones. On a real
+            recording a 1.6 second loss separated two phases whose hip
+            heights differed by 0.19 -- more than a whole repetition's
+            travel -- and mixing them made every repetition uncountable.
         calibration_requires_good_quality: Draw calibration only from frames
             at GOOD pose quality. Calibration sets the scale every later
             decision is measured against, so it must not be built from
@@ -170,9 +197,13 @@ class StsConfig:
     calibration_minimum_travel: float = 0.04
     calibration_low_percentile: float = 0.05
     calibration_high_percentile: float = 0.95
-    calibration_window: int = 900
+    calibration_window: int = 300
     calibration_requires_good_quality: bool = True
     calibration_refine: bool = True
+    calibration_refine_interval_frames: int = 15
+    calibration_reset_after_suspension_ms: float = 1000.0
+    calibration_method: str = "cluster"
+    calibration_cluster_minimum_samples: int = 30
 
     quality_recovery_frames: int = 5
 
@@ -252,6 +283,7 @@ class SitToStandEngine(ExerciseEngine):
         self._config.validate()
         self._state = StsState.NO_PERSON
         self._calibration: Optional[StsCalibration] = None
+        self._calibration_is_explicit = False
         self._heights: list[float] = []
         self._candidate: Optional[StsState] = None
         self._candidate_since_ms: Optional[float] = None
@@ -263,7 +295,9 @@ class SitToStandEngine(ExerciseEngine):
         self._last_ms: Optional[float] = None
         self._quality_status: Optional[PoseQualityStatus] = None
         self._recovery_frames = 0
+        self._frames_since_refine = 0
         self._suspended_reason: Optional[str] = None
+        self._suspended_at_ms: Optional[float] = None
         self._worst_quality = PoseQualityStatus.GOOD
         self._stopped = False
 
@@ -286,6 +320,7 @@ class SitToStandEngine(ExerciseEngine):
     def initialise(self, calibration: Optional[StsCalibration] = None) -> list[Event]:
         self.__init__(self._config)  # type: ignore[misc]
         self._calibration = calibration
+        self._calibration_is_explicit = calibration is not None
         events: list[Event] = []
         if calibration is not None:
             events.append(
@@ -300,6 +335,7 @@ class SitToStandEngine(ExerciseEngine):
             return []
         events = self._abandon_repetition(self._last_ms or 0.0, reason)
         self._suspended_reason = reason
+        self._suspended_at_ms = self._last_ms
         self._state = StsState.SUSPENDED
         self._candidate = None
         events.append(
@@ -313,10 +349,20 @@ class SitToStandEngine(ExerciseEngine):
     def resume(self) -> list[Event]:
         if self._state is not StsState.SUSPENDED:
             return []
+        now = self._last_ms or 0.0
+        away_ms = now - (self._suspended_at_ms or now)
+        if (
+            not self._calibration_is_explicit
+            and away_ms >= self._config.calibration_reset_after_suspension_ms
+        ):
+            # Long enough to have moved. Heights gathered before the
+            # interruption describe a position that may no longer apply.
+            self._heights.clear()
         self._suspended_reason = None
+        self._suspended_at_ms = None
         self._recovery_frames = 0
         self._state = StsState.NO_PERSON
-        return [self._event(EventType.EXERCISE_RESUMED, self._last_ms or 0.0)]
+        return [self._event(EventType.EXERCISE_RESUMED, now)]
 
     def stop(self) -> list[Event]:
         if self._stopped:
@@ -366,6 +412,9 @@ class SitToStandEngine(ExerciseEngine):
             events.extend(self._calibrate(now))
             if self._calibration is None:
                 return events
+
+        events.extend(self._expire_stalled_repetition(now))
+        events.extend(self._maybe_refine(now))
 
         normalised = self._calibration.normalise(hip_height)
         if normalised is None:
@@ -595,20 +644,30 @@ class SitToStandEngine(ExerciseEngine):
             self._heights.pop(0)
 
     def _estimate(self) -> Optional[StsCalibration]:
-        """Percentile estimate of seated and standing heights, if adequate."""
+        """Estimate seated and standing heights from observed movement."""
         config = self._config
         if len(self._heights) < 10:
             return None
-        ordered = sorted(self._heights)
-        last = len(ordered) - 1
-        low = ordered[min(int(config.calibration_low_percentile * len(ordered)), last)]
-        high = ordered[min(int(config.calibration_high_percentile * len(ordered)), last)]
+
+        if (
+            config.calibration_method == "cluster"
+            and len(self._heights) >= config.calibration_cluster_minimum_samples
+        ):
+            low, high = _cluster_reference(self._heights)
+            source = "movement_cluster"
+        else:
+            ordered = sorted(self._heights)
+            last = len(ordered) - 1
+            low = ordered[min(int(config.calibration_low_percentile * len(ordered)), last)]
+            high = ordered[min(int(config.calibration_high_percentile * len(ordered)), last)]
+            source = "movement_percentile"
+
         if high - low < config.calibration_minimum_travel:
             return None
         return StsCalibration(
             seated_hip_height=low,
             standing_hip_height=high,
-            source="movement_cycle",
+            source=source,
             samples=len(self._heights),
         )
 
@@ -619,19 +678,61 @@ class SitToStandEngine(ExerciseEngine):
         self._calibration = estimate
         return [self._event(EventType.CALIBRATED, now, payload=estimate.to_dict())]
 
-    def _refine_calibration(self, now: float) -> list[Event]:
-        """Improve calibration while the participant is sitting still.
+    def _expire_stalled_repetition(self, now: float) -> list[Event]:
+        """Abandon a repetition that has been in progress implausibly long.
 
-        Only called on entry to SEATED, so the scale a repetition is measured
-        against never changes part-way through it.
+        Without this a repetition can stay in flight indefinitely, and that
+        is not merely untidy: an in-flight repetition blocks calibration
+        refinement, and bad calibration is the very thing that prevents the
+        repetition from ever completing. The two deadlock each other, and the
+        engine counts nothing for the rest of the attempt.
         """
+        rep = self._current
+        if rep is None:
+            return []
+        if now - rep.started_ms <= self._config.maximum_rep_seconds * 1000.0:
+            return []
+        self._state = (
+            StsState.SEATED if self._state is StsState.RISING else self._state
+        )
+        return self._abandon_repetition(now, "repetition_stalled")
+
+    def _maybe_refine(self, now: float) -> list[Event]:
+        """Recompute calibration periodically between repetitions.
+
+        Never while a repetition is in progress, so the scale a repetition is
+        measured against cannot change part-way through it.
+        """
+        if self._current is not None:
+            self._frames_since_refine = 0
+            return []
+        self._frames_since_refine += 1
+        if self._frames_since_refine < self._config.calibration_refine_interval_frames:
+            return []
+        self._frames_since_refine = 0
+        return self._refine_calibration(now)
+
+    def _refine_calibration(self, now: float) -> list[Event]:
+        """Replace calibration with a better-informed estimate."""
         if not self._config.calibration_refine or self._calibration is None:
             return []
-        estimate = self._estimate()
-        if estimate is None or estimate.travel <= self._calibration.travel:
+        if self._calibration_is_explicit:
+            # Calibration the caller supplied is authoritative. Quietly
+            # replacing it would make a prescribed or previously measured
+            # reference silently ineffective.
             return []
-        # Only widen. Narrowing would let an unusually shallow stand shrink
-        # the reference range and inflate every later measurement.
+        estimate = self._estimate()
+        if estimate is None:
+            return []
+        if estimate.to_dict() == self._calibration.to_dict():
+            return []
+        # Replaces in either direction. An earlier "only widen" rule was
+        # needed while calibration came from percentiles, where a shallow
+        # stand could shrink the range. Cluster medians are computed from
+        # every frame observed so far and move little with one odd
+        # repetition, so a later estimate is simply better informed --
+        # including when it is narrower, which is exactly what corrects a
+        # range inflated by walking about.
         self._calibration = estimate
         return [self._event(EventType.CALIBRATED, now, payload=estimate.to_dict())]
 
@@ -762,6 +863,52 @@ class SitToStandEngine(ExerciseEngine):
             sequence=sequence,
             payload=payload or {},
         )
+
+
+def _cluster_reference(heights: list[float]) -> tuple[float, float]:
+    """Split hip heights into a seated and a standing cluster.
+
+    Sit-to-stand spends most of its time either seated or standing, with
+    quick transitions between, so the distribution is bimodal. Walking to and
+    from the camera is not: it spreads continuously, and it moves hip height
+    a long way, because apparent height depends on distance from the camera.
+
+    Percentiles cannot tell those apart. On a real recording where the
+    participant walked in and out, the 5th-to-95th percentile spread was
+    0.247 against a true repetition travel of 0.137, so repetitions reached
+    only 0.55 of the calibrated range and none of them were counted.
+
+    The split point is chosen to maximise between-cluster variance (Otsu's
+    method), and each reference is the *median* of its cluster, which a tail
+    of walking frames barely moves.
+    """
+    ordered = sorted(heights)
+    count = len(ordered)
+    prefix = [0.0]
+    for value in ordered:
+        prefix.append(prefix[-1] + value)
+    total = prefix[-1]
+
+    margin = max(1, count // 20)
+    best_index, best_variance = count // 2, -1.0
+    for index in range(margin, count - margin):
+        weight_low = index / count
+        weight_high = 1.0 - weight_low
+        mean_low = prefix[index] / index
+        mean_high = (total - prefix[index]) / (count - index)
+        variance = weight_low * weight_high * (mean_low - mean_high) ** 2
+        if variance > best_variance:
+            best_variance, best_index = variance, index
+
+    lower, upper = ordered[:best_index], ordered[best_index:]
+    return _median(lower), _median(upper)
+
+
+def _median(values: list[float]) -> float:
+    middle = len(values) // 2
+    if len(values) % 2:
+        return values[middle]
+    return (values[middle - 1] + values[middle]) / 2.0
 
 
 def _severity(status: PoseQualityStatus) -> int:

@@ -191,3 +191,68 @@ class TestScope:
                     f"{file.name} references {name}; the browser spike is "
                     "turning into a port of the exercise engine"
                 )
+
+
+class TestGestureParity:
+    """The two runtimes must accept the same arm positions.
+
+    If the browser's elbow range or hold durations differed from Python's, a
+    participant would find the gesture working in one and not the other, and a
+    recording made in one would not be comparable with a recording made in the
+    other.
+    """
+
+    @staticmethod
+    def js_gesture_defaults() -> dict[str, float]:
+        source = read("gestures.js")
+        block = re.search(
+            r"export const GESTURE_DEFAULTS = \{(.*?)\n\};", source, re.S
+        )
+        assert block, "GESTURE_DEFAULTS not found in gestures.js"
+        return {
+            key: float(value)
+            for key, value in re.findall(
+                r"(\w+):\s*([\d.]+)", block.group(1)
+            )
+        }
+
+    def test_the_elbow_range_matches(self):
+        from src.movement.gestures import ArmRaiseConfig
+
+        js = self.js_gesture_defaults()
+        python = ArmRaiseConfig()
+        assert js["minimumElbowAngle"] == pytest.approx(python.minimum_elbow_angle)
+        assert js["maximumElbowAngle"] == pytest.approx(python.maximum_elbow_angle)
+
+    def test_the_confidence_floor_matches(self):
+        from src.movement.gestures import ArmRaiseConfig
+
+        assert self.js_gesture_defaults()["minimumConfidence"] == pytest.approx(
+            ArmRaiseConfig().minimum_confidence
+        )
+
+    def test_the_hold_durations_match(self):
+        from src.config import AppConfig
+
+        js = self.js_gesture_defaults()
+        gestures = AppConfig().gestures
+        assert js["startHoldMs"] == pytest.approx(gestures.start_hold_ms)
+        assert js["stopHoldMs"] == pytest.approx(gestures.stop_hold_ms)
+        assert js["settleSeconds"] == pytest.approx(gestures.settle_seconds)
+
+    def test_the_weaker_gesture_still_carries_the_longer_hold(self):
+        js = self.js_gesture_defaults()
+        assert js["startHoldMs"] > js["stopHoldMs"]
+
+    def test_the_browser_corrects_for_aspect_ratio(self):
+        # The elbow angle must be computed in isotropic space. Without the
+        # correction the browser would accept different arm positions from
+        # Python — the error made twice already in this project.
+        assert "aspectRatio" in read("geometry.js")
+        assert "aspectRatio" in read("gestures.js")
+        assert "DEFAULT_ASPECT = 16 / 9" in read("geometry.js")
+
+    def test_both_arms_are_required_to_stop(self):
+        source = read("gestures.js")
+        assert "requiredArms" in source
+        assert 'new ArmRaiseDetector({}, 2)' in read("app.js")

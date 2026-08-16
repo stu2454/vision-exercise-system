@@ -29,6 +29,24 @@ To try it on a tablet on the same network, find your machine's address with
 most browsers refuse camera access over plain http to anything except
 `localhost`, so a tablet test needs https or a tunnel.
 
+## Gesture control
+
+Raise **one arm** bent at the elbow to start recording; raise **both arms** to
+finish. A three-second settle follows the start signal so the arm can come down
+before anything is recorded.
+
+This is not decoration. A recording made by walking to the keyboard puts that
+walk into the recording, and hip height moves further while crossing a room
+than it does during a repetition — which broke calibration completely in
+Python and made a session count nothing. The gesture removes the cause.
+
+The thresholds match the Python ones exactly: 50–130° at the elbow, wrist above
+shoulder, 0.60 confidence floor, 800 ms to start and 600 ms to stop. The start
+hold is the longer one because a single raised arm is weaker evidence of intent
+than two. `tests/unit/test_web_parity.py` fails if the two ever disagree.
+
+Untick **Gestures** to record with the buttons instead.
+
 ## Stopping the camera
 
 **Stop camera** releases it immediately — every media track is stopped, the
@@ -74,8 +92,9 @@ so canonical left and right mean the same thing in both.
 
 ## Keeping the two in step
 
-`canonical.js` restates the landmark names, the MediaPipe index map and the
-synthetic midpoints in JavaScript. Two implementations of one definition drift.
+`canonical.js`, `geometry.js` and `gestures.js` restate the landmark names, the
+MediaPipe index map, the aspect-ratio correction and the gesture thresholds in
+JavaScript. Two implementations of one definition drift.
 `tests/unit/test_web_parity.py` reads this JavaScript as text and compares it
 with the Python source of truth, so drift fails the suite rather than being
 discovered later in a comparison that quietly means nothing.

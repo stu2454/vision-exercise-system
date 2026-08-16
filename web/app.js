@@ -17,6 +17,7 @@ import {
   landmarksToCanonical,
   makePoseFrame,
 } from "./canonical.js";
+import { ArmRaiseDetector, GESTURE_DEFAULTS } from "./gestures.js";
 import { PoseStreamRecorder } from "./recorder.js";
 
 const MODEL_PATH = "../models/pose_landmarker_lite.task";
@@ -41,6 +42,7 @@ const ui = {
   record: el("record"),
   download: el("download"),
   skeleton: el("skeleton"),
+  gestures: el("gestures"),
   view: el("view"),
   status: el("status"),
   fps: el("fps"),
@@ -62,6 +64,16 @@ const state = {
   inferenceTimes: [],
   showSkeleton: true,
   recorder: new PoseStreamRecorder(),
+  // Gesture control, matching the Python `exercise` command. Nothing is
+  // recorded until the participant signals, so the walk into position never
+  // reaches the recording.
+  gesturesEnabled: true,
+  startGesture: new ArmRaiseDetector({}, 1),
+  stopGesture: new ArmRaiseDetector({}, 2),
+  awaitingStart: true,
+  settleUntilMs: null,
+  prompt: "",
+  promptProgress: 0,
 };
 
 /** Rolling frame-rate estimate from delivered frame timestamps. */
@@ -121,6 +133,91 @@ function drawSkeleton(context, pose, width, height) {
     context.beginPath();
     context.arc(position[0], position[1], radius, 0, Math.PI * 2);
     context.fill();
+  }
+}
+
+/**
+ * A large instruction across the image, readable from across a room.
+ *
+ * The ordinary readout is unreadable at the distance a participant stands to
+ * exercise, which is how two Python takes came to be recorded with the legs
+ * out of frame.
+ */
+function drawBanner(context, text, progress, width, height) {
+  const scale = Math.max(1, width / 640) * 1.4;
+  const fontSize = Math.round(22 * scale);
+  context.font = `700 ${fontSize}px ui-monospace, Menlo, monospace`;
+  context.textAlign = "center";
+
+  const y = height - Math.round(height * 0.07);
+  const bandTop = y - fontSize - 18;
+  const bandBottom = y + (progress > 0 ? 34 : 16);
+
+  context.fillStyle = "rgba(0, 0, 0, 0.62)";
+  context.fillRect(0, bandTop, width, bandBottom - bandTop);
+
+  context.fillStyle = "#28c8f0";
+  context.fillText(text, width / 2, y);
+
+  if (progress > 0) {
+    const barWidth = width * 0.5;
+    const left = (width - barWidth) / 2;
+    const top = y + 12;
+    context.fillStyle = "#464646";
+    context.fillRect(left, top, barWidth, 10);
+    context.fillStyle = "#28c8f0";
+    context.fillRect(left, top, barWidth * Math.min(1, progress), 10);
+  }
+  context.textAlign = "start";
+}
+
+/**
+ * Advance the gesture state machine for one frame.
+ *
+ * Start: one raised arm, then a settle pause so the arm can come down and the
+ * participant can be still before anything is measured.
+ * Stop: both arms raised.
+ */
+function updateGestures(pose) {
+  if (!state.gesturesEnabled) return;
+
+  if (state.awaitingStart) {
+    if (state.settleUntilMs === null) {
+      const gesture = state.startGesture.update(pose);
+      state.prompt = "RAISE AN ARM TO RECORD";
+      state.promptProgress = gesture.progress;
+      if (gesture.triggered) {
+        state.settleUntilMs =
+          pose.timestamp_ms + GESTURE_DEFAULTS.settleSeconds * 1000;
+      }
+      return;
+    }
+    const remaining = (state.settleUntilMs - pose.timestamp_ms) / 1000;
+    if (remaining > 0) {
+      state.prompt = `STARTING IN ${Math.max(0, Math.floor(remaining) + 1)}`;
+      state.promptProgress = 0;
+      return;
+    }
+    state.awaitingStart = false;
+    state.settleUntilMs = null;
+    state.prompt = "";
+    state.promptProgress = 0;
+    beginRecording();
+    return;
+  }
+
+  const finish = state.stopGesture.update(pose);
+  if (finish.raised) {
+    state.prompt = "RAISE BOTH ARMS TO FINISH";
+    state.promptProgress = finish.progress;
+  } else if (state.prompt.startsWith("RAISE BOTH")) {
+    state.prompt = "";
+    state.promptProgress = 0;
+  }
+  if (finish.triggered) {
+    endRecording();
+    state.prompt = "";
+    state.promptProgress = 0;
   }
 }
 
@@ -196,6 +293,8 @@ function stopEverything(message = "Camera off.") {
   context.fillRect(0, 0, ui.canvas.width, ui.canvas.height);
 
   state.lastPose = null;
+  state.prompt = "";
+  state.promptProgress = 0;
   state.lastVideoTime = -1;
   state.timestamps = [];
   state.inferenceTimes = [];
@@ -271,6 +370,8 @@ function loop() {
     state.inferenceTimes.push(inferenceMs);
     if (state.inferenceTimes.length > 60) state.inferenceTimes.shift();
 
+    updateGestures(pose);
+
     if (state.recorder.recording) {
       state.recorder.write(pose);
       ui.frames.textContent = String(state.recorder.frameCount);
@@ -290,6 +391,10 @@ function loop() {
     drawSkeleton(context, state.lastPose, width, height);
   }
 
+  if (state.prompt) {
+    drawBanner(context, state.prompt, state.promptProgress, width, height);
+  }
+
   requestAnimationFrame(loop);
 }
 
@@ -305,6 +410,7 @@ async function onStart() {
     setStatus("Running", "ok");
     ui.record.disabled = false;
     ui.stop.disabled = false;
+    armGestures();
     requestAnimationFrame(loop);
   } catch (error) {
     // Say what went wrong and what to do about it.
@@ -314,22 +420,19 @@ async function onStart() {
   }
 }
 
-function onRecord() {
-  if (state.recorder.recording) {
-    const id = state.recorder.stop();
-    ui.record.textContent = "Start recording";
-    ui.record.classList.remove("recording");
-    ui.download.disabled = false;
-    setStatus(`Recorded ${state.recorder.frameCount} frames as ${id}`, "ok");
-    return;
-  }
+/**
+ * Start recording. One path, used by both the gesture and the button, so the
+ * two cannot diverge.
+ */
+function beginRecording() {
+  if (state.recorder.recording) return true;
 
   const fps = measuredFps();
   if (fps === null) {
     // Refusing rather than guessing: a wrong frame rate in the metadata is
     // the defect that cost a 2x timing error in the Python recorder.
     setStatus("Wait a moment — measuring the frame rate first.", "warn");
-    return;
+    return false;
   }
 
   const track = state.stream ? state.stream.getVideoTracks()[0] : null;
@@ -348,6 +451,41 @@ function onRecord() {
   ui.record.classList.add("recording");
   ui.frames.textContent = "0";
   setStatus(`Recording ${id}`, "rec");
+  return true;
+}
+
+function endRecording() {
+  if (!state.recorder.recording) return;
+  const id = state.recorder.stop();
+  ui.record.textContent = "Start recording";
+  ui.record.classList.remove("recording");
+  ui.download.disabled = state.recorder.frameCount === 0;
+  setStatus(`Recorded ${state.recorder.frameCount} frames as ${id}`, "ok");
+  armGestures();
+}
+
+/** Re-arm so a second take can be started by gesture without reloading. */
+function armGestures() {
+  state.startGesture.reset();
+  state.stopGesture.reset();
+  state.awaitingStart = state.gesturesEnabled;
+  state.settleUntilMs = null;
+  state.prompt = "";
+  state.promptProgress = 0;
+}
+
+function onRecord() {
+  // The button overrides the gesture rather than fighting it.
+  if (state.recorder.recording) {
+    endRecording();
+    return;
+  }
+  if (beginRecording()) {
+    state.awaitingStart = false;
+    state.settleUntilMs = null;
+    state.prompt = "";
+    state.promptProgress = 0;
+  }
 }
 
 function onDownload() {
@@ -361,6 +499,14 @@ ui.record.addEventListener("click", onRecord);
 ui.download.addEventListener("click", onDownload);
 ui.skeleton.addEventListener("change", (event) => {
   state.showSkeleton = event.target.checked;
+});
+ui.gestures.addEventListener("change", (event) => {
+  state.gesturesEnabled = event.target.checked;
+  armGestures();
+  if (!state.gesturesEnabled) {
+    state.prompt = "";
+    state.promptProgress = 0;
+  }
 });
 
 // Release the camera however the page goes away — closing the tab, navigating

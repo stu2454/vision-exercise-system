@@ -13,6 +13,8 @@ from typing import Any, Optional
 
 import yaml
 
+from src.movement.features import FeatureConfig
+from src.movement.filtering import FilterSettings
 from src.pose.quality import DEFAULT_REQUIRED_LANDMARKS, PoseQualityConfig
 
 REPOSITORY_ROOT = Path(__file__).resolve().parent.parent
@@ -109,6 +111,8 @@ class AppConfig:
     camera: CameraConfig = field(default_factory=CameraConfig)
     pose: PoseConfig = field(default_factory=PoseConfig)
     pose_quality: PoseQualityConfig = field(default_factory=PoseQualityConfig)
+    filtering: FilterSettings = field(default_factory=FilterSettings)
+    features: FeatureConfig = field(default_factory=FeatureConfig)
     recording: RecordingConfig = field(default_factory=RecordingConfig)
     log_level: str = "INFO"
 
@@ -173,6 +177,8 @@ def load_config(path: Path | str | None = None) -> AppConfig:
         camera=_build(CameraConfig, _section(raw, "camera"), "camera"),
         pose=_build(PoseConfig, _section(raw, "pose"), "pose"),
         pose_quality=_build(PoseQualityConfig, quality_data, "pose_quality"),
+        filtering=_build(FilterSettings, _section(raw, "filtering"), "filtering"),
+        features=_build(FeatureConfig, _section(raw, "features"), "features"),
         recording=_build(RecordingConfig, _section(raw, "recording"), "recording"),
         log_level=str(_section(raw, "application").get("log_level", "INFO")),
     )

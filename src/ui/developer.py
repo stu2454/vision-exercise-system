@@ -11,7 +11,7 @@ unchanged if the pose engine is replaced.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional, Sequence
 
 import cv2
@@ -68,6 +68,7 @@ class DeveloperHud:
     recorded_frames: int = 0
     show_skeleton: bool = True
     setup_mode: bool = False
+    features: dict[str, Optional[float]] = field(default_factory=dict)
     message: str = ""
 
 
@@ -221,6 +222,13 @@ def draw_developer_overlay(
         )
         if problem_landmarks:
             lines.append((", ".join(sorted(set(problem_landmarks)))[:44], grey))
+
+    if hud.features:
+        # Movement features, so algorithm behaviour is visible while it runs
+        # rather than only in later analysis (CLAUDE.md §26).
+        for label, value in hud.features.items():
+            shown = "—" if value is None else f"{value:8.3f}"
+            lines.append((f"{label:<15}{shown}", grey))
 
     if hud.recording_pose or hud.recording_video:
         targets = []

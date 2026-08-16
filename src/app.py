@@ -36,6 +36,15 @@ from src.camera.base import FrameSource, FrameSourceError, FrameSourceInfo
 from src.camera.video_file import VideoFileFrameSource
 from src.camera.webcam import WebcamFrameSource
 from src.config import AppConfig, ConfigurationError, load_config
+from src.movement.features import (
+    HIP_HEIGHT,
+    HIP_VERTICAL_VELOCITY,
+    MEAN_KNEE_ANGLE,
+    STANCE_WIDTH_NORMALISED,
+    TRUNK_ANGLE,
+    FeatureExtractor,
+)
+from src.movement.filtering import PoseFilter
 from src.pose.adapters.mediapipe_adapter import MediaPipePoseEngine
 from src.pose.base import PoseEngine, PoseEngineError
 from src.pose.quality import PoseQualityAssessor
@@ -233,6 +242,8 @@ def run_frame_loop(
         The number of frames processed.
     """
     assessor = PoseQualityAssessor(config.pose_quality)
+    pose_filter = PoseFilter(config.filtering)
+    extractor = FeatureExtractor(config.features)
     fps_meter = FpsMeter()
     inference_mean = RollingMean()
     source_label = source.info().description
@@ -244,6 +255,11 @@ def run_frame_loop(
         for frame in source.frames():
             pose = engine.estimate(frame, source=f"{engine.info().engine}:{source_label}")
             report = assessor.assess(pose)
+            # Pose quality is judged on raw landmarks, because smoothing would
+            # hide the jitter that quality exists to detect. Features are
+            # derived from the filtered stream, because thresholds must not be
+            # crossed by noise (CLAUDE.md §8).
+            features = extractor.update(pose_filter.apply(pose))
             fps_meter.tick()
             inference_mean.add(engine.last_inference_ms)
             processed += 1
@@ -272,6 +288,13 @@ def run_frame_loop(
             hud.recorded_frames = (
                 0 if recording is None else recording.pose_writer.frame_count
             )
+            hud.features = {
+                "hip_height": features.value(HIP_HEIGHT),
+                "hip_velocity": features.value(HIP_VERTICAL_VELOCITY),
+                "knee_angle": features.value(MEAN_KNEE_ANGLE),
+                "trunk_angle": features.value(TRUNK_ANGLE),
+                "stance_width": features.value(STANCE_WIDTH_NORMALISED),
+            }
 
             if not headless:
                 hint = assess_framing(pose, config.pose_quality.required_landmarks)

@@ -63,6 +63,32 @@ pose_quality:
   frames_to_worsen: 2
   frames_to_improve: 5
 
+filtering:
+  # Landmark smoothing. Raw landmarks jitter enough to cross any threshold
+  # repeatedly within a held posture (CLAUDE.md §8).
+  # none | exponential_moving_average | moving_median | one_euro
+  kind: exponential_moving_average
+  # Lag in milliseconds. Larger is smoother and slower to respond. Expressed
+  # in time, not frames, because measured capture rate drifts between 27.9
+  # and 29.9 fps within a single session.
+  time_constant_ms: 80.0
+  # moving_median only.
+  window: 5
+  # one_euro only.
+  min_cutoff_hz: 1.0
+  beta: 0.007
+  derivative_cutoff_hz: 1.0
+  # Gap after which filter state is discarded rather than blended across a
+  # tracking loss, which would fabricate movement that did not happen.
+  max_gap_ms: 250.0
+
+features:
+  # Landmark confidence below which a derived feature is marked invalid.
+  minimum_confidence: 0.30
+  # Longest interval across which a velocity is computed. A larger gap means
+  # frames were dropped, and the result would not describe real movement.
+  maximum_elapsed_ms: 250.0
+
 recording:
   directory: recordings
   # Video recording is always an explicit developer action (CLAUDE.md §28).

@@ -5,11 +5,15 @@ RGB cameras and pose estimation.
 
 ## Current phase
 
-The **Pose Sandbox** (Builds 0–3) is implemented: camera capture, MediaPipe
-pose estimation, the Canonical PoseFrame adapter, pose quality, and video and
-pose-stream record and replay.
+Builds 0–6 are implemented: camera capture, MediaPipe pose estimation, the
+Canonical PoseFrame adapter, pose quality, record and replay, temporal
+filtering and movement features, the STS-001 sit-to-stand state machine, and
+the ground-truth regression harness.
 
-Next is Build 4 (movement features), then Build 5 (STS-001 Sit-to-Stand).
+Current standing on the regression dataset: 31 of 33 repetitions, 93.9% count
+agreement, zero false positives.
+
+Next is Build 7 (participant feedback).
 
 ## Setup
 
@@ -129,6 +133,25 @@ regardless. Measure before deciding otherwise:
 ```bash
 python tools/benchmark.py --synthetic --frames 120
 ```
+
+## Regression dataset
+
+Ground truth lives in `test_data/regression/` as one case file per recording,
+separate from anything the algorithm produces (Doc 03 §27).
+
+```bash
+python tools/evaluate.py            # full error profile
+python tools/evaluate.py --json     # machine-readable
+```
+
+Run it before and after an algorithm change and compare the error profile, not
+just the percentage. It exits non-zero on any false repetition; a conservative
+miss does not fail the run, because detecting a repetition the participant did
+not perform is the worse error (Doc 03 §49).
+
+Recordings are not committed. The evaluator searches `test_data/pose/` then
+`recordings/`, and skips cases whose recording is absent rather than failing.
+See [test_data/regression/README.md](test_data/regression/README.md).
 
 ## Tests
 

@@ -1,0 +1,19 @@
+case_id: sts_oblique_001
+recording: dev_20260816_101917.jsonl
+exercise_id: STS-001
+
+true_repetitions: 10
+partial_repetitions: 0
+
+# Labelled frontal when recorded because the flag was not changed between
+# takes. Shoulder width foreshortens to 0.36 of the frontal reference,
+# which puts the camera near 66 degrees rather than the 45 intended.
+camera_view: oblique_66
+hand_support_reps: []
+use_gestures: false
+notes: >
+  Angled take. Knee flexion is measured far better here than frontally,
+  82 degrees of range against 48, with seated knee near the anatomically
+  correct 90. Ankle confidence is worse, 0.75 against 0.97. The tenth
+  repetition begins while pose quality is INSUFFICIENT during the walk-in,
+  so it falls outside the scorable window.

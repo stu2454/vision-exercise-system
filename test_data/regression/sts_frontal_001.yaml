@@ -1,0 +1,22 @@
+# Ground truth, observed by a human. Kept separate from anything the
+# algorithm produces (Document 03 §27).
+case_id: sts_frontal_001
+recording: dev_20260816_101803.jsonl
+exercise_id: STS-001
+
+# Counted from the recording after the fact, not recalled during it. The
+# participant remembered 10; hip height showed 12 cycles at a metronomic
+# 3.1-3.3s spacing, knee angle independently corroborated 11 of them, and
+# all 12 reached the same standing height to within a standard deviation
+# of 0.0046. Recalled counts are not ground truth.
+true_repetitions: 12
+partial_repetitions: 0
+camera_view: frontal
+hand_support_reps: []
+
+# Predates the start and stop gestures, so the whole recording is scored.
+use_gestures: false
+notes: >
+  Clean frontal take, 92% scorable, 39s continuous segment. The first
+  repetition is consumed by calibration, so one miss is expected until
+  calibration can be carried between sessions.

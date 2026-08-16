@@ -1,0 +1,16 @@
+case_id: sts_gesture_001
+recording: dev_20260816_134314.jsonl
+exercise_id: STS-001
+
+true_repetitions: 11
+partial_repetitions: 0
+camera_view: frontal
+hand_support_reps: []
+
+# First take delimited by gestures: one arm to start, both to finish.
+use_gestures: true
+notes: >
+  The gesture gate removes the walk-into-position contamination that made
+  an earlier session count nothing. Calibration completed during the
+  post-signal sit-down, so no repetition was consumed by it and all 11
+  were counted.

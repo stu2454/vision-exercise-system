@@ -39,6 +39,7 @@ from src.camera.webcam import WebcamFrameSource
 from src.config import AppConfig, ConfigurationError, load_config, load_sts_config
 from src.exercises.base import ExerciseResult
 from src.exercises.events import Event, EventType
+from src.evaluation import score_pose_stream
 from src.exercises.sit_to_stand import SitToStandEngine
 from src.movement.features import (
     HIP_HEIGHT,
@@ -494,68 +495,40 @@ def command_score(args: argparse.Namespace, config: AppConfig) -> int:
     This is the reproducible path: the same recording must always produce the
     same result, so an algorithm change can be judged against a known
     recording rather than against a fresh demonstration (CLAUDE.md §17).
+
+    Scoring itself lives in `src.evaluation`, shared with the regression
+    harness, so the suite and this command cannot diverge.
     """
     sts_config = load_sts_config(args.exercise_config)
     if args.target is not None:
         sts_config = dataclasses.replace(sts_config, target_repetitions=args.target)
 
-    assessor = PoseQualityAssessor(config.pose_quality)
-    pose_filter = PoseFilter(config.filtering)
-    extractor = FeatureExtractor(config.features)
-    exercise = SitToStandEngine(sts_config)
-    exercise.initialise()
-
-    # The same gesture gate the live run applied. Without it a recording made
-    # with gestures replays differently from the session that produced it,
-    # which would defeat the point of replay being the reproducible path.
-    gestures = config.gestures
-    start_gesture = (
-        None if args.no_start_gesture else ArmRaiseDetector(gestures.start_config())
+    scored = score_pose_stream(
+        args.path,
+        config=config,
+        sts_config=sts_config,
+        use_gestures=not args.no_start_gesture,
     )
-    stop_gesture = (
-        None
-        if args.no_start_gesture
-        else ArmRaiseDetector(gestures.stop_config(), required_arms=2)
-    )
-    awaiting_start = start_gesture is not None
-    settle_until_ms: Optional[float] = None
-    started_at_ms: Optional[float] = None
-    stopped_at_ms: Optional[float] = None
+    result = scored.result
+    metadata = scored.metadata
 
-    events: list[Event] = []
-    with PoseStreamSource(args.path) as stream:
-        metadata = stream.metadata
-        for pose in stream.poses():
-            if awaiting_start and start_gesture is not None:
-                if settle_until_ms is None:
-                    if start_gesture.update(pose).triggered:
-                        settle_until_ms = (
-                            pose.timestamp_ms + gestures.settle_seconds * 1000.0
-                        )
-                elif pose.timestamp_ms >= settle_until_ms:
-                    exercise.initialise()
-                    awaiting_start = False
-                    started_at_ms = pose.timestamp_ms
-                if awaiting_start:
-                    continue
-            if stop_gesture is not None and stop_gesture.update(pose).triggered:
-                stopped_at_ms = pose.timestamp_ms
-                break
-            quality = assessor.assess(pose)
-            features = extractor.update(pose_filter.apply(pose))
-            events.extend(exercise.update(pose, features, quality))
-    events.extend(exercise.stop())
-
-    result = exercise.result()
     print(f"Recording   {metadata.recording_id}   view {metadata.camera_view}")
     print(f"Algorithm   STS-001 {result.exercise_algorithm_version}")
-    if start_gesture is not None:
-        began = "not detected" if started_at_ms is None else f"{started_at_ms / 1000:.1f}s"
-        ended = "not detected" if stopped_at_ms is None else f"{stopped_at_ms / 1000:.1f}s"
+    if not args.no_start_gesture:
+        began = (
+            "not detected"
+            if scored.started_at_ms is None
+            else f"{scored.started_at_ms / 1000:.1f}s"
+        )
+        ended = (
+            "not detected"
+            if scored.stopped_at_ms is None
+            else f"{scored.stopped_at_ms / 1000:.1f}s"
+        )
         print(f"Gestures    start {began}   stop {ended}")
     print()
     for event_type in _LOGGED_EVENTS:
-        count = sum(1 for e in events if e.event is event_type)
+        count = scored.count(event_type)
         if count:
             print(f"  {event_type.value:24} {count}")
     print()

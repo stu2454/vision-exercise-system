@@ -29,6 +29,20 @@ To try it on a tablet on the same network, find your machine's address with
 most browsers refuse camera access over plain http to anything except
 `localhost`, so a tablet test needs https or a tunnel.
 
+## Stopping the camera
+
+**Stop camera** releases it immediately — every media track is stopped, the
+indicator light goes out and the picture is cleared. **Escape** does the same,
+so there is always a way out without the mouse. Closing the tab or navigating
+away also releases it, via `pagehide`.
+
+Pausing the video element or dropping its reference is not enough on its own:
+the camera stays live and its light stays on. Everything that ends a session
+routes through one teardown path for that reason.
+
+A recording in progress is stopped but kept, and stays downloadable. Silently
+discarding someone's take would be worse than ending it early.
+
 ## What it shows
 
 Frames per second, mean inference time, person confidence, landmark count and

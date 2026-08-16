@@ -90,6 +90,10 @@
     color: var(--ink-faint);
   }
 
+  .hint {
+    font-size: 0.82rem; color: var(--ink-faint);
+    margin: -0.75rem 0 1.25rem;
+  }
   .note {
     background: var(--surface); border: 1px solid var(--rule);
     border-top: 2px solid var(--accent); border-radius: 3px;
@@ -124,6 +128,7 @@
 
   <div class="controls">
     <button id="start">Start camera</button>
+    <button id="stop" class="secondary" disabled>Stop camera</button>
     <button id="record" class="secondary" disabled>Start recording</button>
     <button id="download" class="secondary" disabled>Download pose stream</button>
     <select id="view" aria-label="Camera view recorded with the take">
@@ -136,6 +141,11 @@
   </div>
 
   <div id="status">Idle. Press Start camera.</div>
+
+  <p class="hint">
+    Stop camera releases it immediately and the indicator light goes out.
+    Escape does the same. Closing the tab also releases it.
+  </p>
 
   <div class="readout">
     <div class="cell"><span class="v" id="fps">—</span><span class="k">Frames / sec</span></div>

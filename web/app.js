@@ -37,6 +37,7 @@ const ui = {
   video: el("video"),
   canvas: el("canvas"),
   start: el("start"),
+  stop: el("stop"),
   record: el("record"),
   download: el("download"),
   skeleton: el("skeleton"),
@@ -52,6 +53,7 @@ const ui = {
 
 const state = {
   landmarker: null,
+  stream: null,
   running: false,
   startedAt: 0,
   frameIndex: 0,
@@ -147,8 +149,65 @@ async function startCamera() {
     },
     audio: false,
   });
+  state.stream = stream;
   ui.video.srcObject = stream;
   await ui.video.play();
+}
+
+/**
+ * Release the camera and clear the picture.
+ *
+ * Every track must be stopped explicitly. Pausing the video or dropping the
+ * element's reference is not enough — the camera stays live, the indicator
+ * light stays on, and the last frame stays on screen. Anything that ends a
+ * session routes through here, including the page being closed.
+ */
+function releaseCamera() {
+  if (state.stream) {
+    for (const track of state.stream.getTracks()) track.stop();
+    state.stream = null;
+  }
+  ui.video.pause();
+  ui.video.srcObject = null;
+}
+
+function stopEverything(message = "Camera off.") {
+  state.running = false;
+  releaseCamera();
+
+  if (state.recorder.recording) {
+    state.recorder.stop();
+    ui.record.textContent = "Start recording";
+    ui.record.classList.remove("recording");
+    // A recording in progress is kept, not discarded: it is still
+    // downloadable, and silently binning someone's take would be worse than
+    // ending it early.
+    ui.download.disabled = state.recorder.frameCount === 0;
+  }
+
+  if (state.landmarker) {
+    state.landmarker.close();
+    state.landmarker = null;
+  }
+
+  const context = ui.canvas.getContext("2d");
+  context.clearRect(0, 0, ui.canvas.width, ui.canvas.height);
+  context.fillStyle = "#000";
+  context.fillRect(0, 0, ui.canvas.width, ui.canvas.height);
+
+  state.lastPose = null;
+  state.lastVideoTime = -1;
+  state.timestamps = [];
+  state.inferenceTimes = [];
+
+  ui.start.disabled = false;
+  ui.stop.disabled = true;
+  ui.record.disabled = true;
+  ui.fps.textContent = "—";
+  ui.inference.textContent = "—";
+  ui.confidence.textContent = "—";
+  ui.landmarks.textContent = "0";
+  setStatus(message);
 }
 
 function loop() {
@@ -240,10 +299,12 @@ async function onStart() {
     state.frameIndex = 0;
     setStatus("Running", "ok");
     ui.record.disabled = false;
+    ui.stop.disabled = false;
     requestAnimationFrame(loop);
   } catch (error) {
     // Say what went wrong and what to do about it.
     setStatus(`Could not start: ${error.message}`, "bad");
+    releaseCamera();
     ui.start.disabled = false;
   }
 }
@@ -286,8 +347,24 @@ function onDownload() {
 }
 
 ui.start.addEventListener("click", onStart);
+ui.stop.addEventListener("click", () => stopEverything("Camera off."));
 ui.record.addEventListener("click", onRecord);
 ui.download.addEventListener("click", onDownload);
 ui.skeleton.addEventListener("change", (event) => {
   state.showSkeleton = event.target.checked;
+});
+
+// Release the camera however the page goes away — closing the tab, navigating
+// off, or the browser discarding a backgrounded tab. Relying on the user to
+// press Stop would leave the camera live and its indicator on.
+window.addEventListener("pagehide", () => {
+  state.running = false;
+  releaseCamera();
+});
+
+// Escape stops the camera, so there is always a way out without the mouse.
+window.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && state.running) {
+    stopEverything("Camera off.");
+  }
 });

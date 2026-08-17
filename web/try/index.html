@@ -52,8 +52,16 @@
   ol.steps { padding-left: 0; list-style: none; counter-reset: s; margin: 0 0 1.5rem; }
   ol.steps li {
     counter-increment: s; display: grid; grid-template-columns: 2.2rem 1fr;
-    gap: 1rem; margin-bottom: 1rem; align-items: start;
+    /* Small row gap, wider column gap: the marker and the text are one
+       column apart, the heading and its explanation one line apart. */
+    gap: 0.2rem 1rem; margin-bottom: 1.15rem; align-items: start;
   }
+  /* Three children -- the marker, the heading and the explanation -- so
+     auto-placement drops the explanation into the 2.2rem marker column and
+     it wraps to one word per line. Both text elements are pinned to the
+     second column instead. */
+  ol.steps li strong,
+  ol.steps li span { grid-column: 2; }
   ol.steps li::before {
     content: counter(s);
     background: var(--accent); color: var(--accent-ink);

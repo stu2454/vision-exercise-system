@@ -93,6 +93,14 @@ calibration:
   cluster_minimum_samples: 30
   # How often calibration may be recomputed between repetitions.
   refine_interval_frames: 15
+  # After this many completed repetitions the reference may widen but never
+  # narrow. Calibration that keeps adapting cannot detect reduced movement,
+  # because the reference follows the movement down: ten full repetitions
+  # reaching hip height 0.434 were followed by four deliberately incomplete
+  # rises reaching 0.380, and calibration had by then re-learned standing as
+  # 0.373, so all four counted. A participant whose stands get shallower
+  # should produce partials, not have the bar lowered to meet them.
+  lock_after_repetitions: 3
 
 pose_quality:
   # Consecutive scorable frames before scoring resumes after an

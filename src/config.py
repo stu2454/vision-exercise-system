@@ -271,6 +271,9 @@ def load_sts_config(path: Path | str | None = None) -> "StsConfig":
             calibration_refine_interval_frames=int(
                 calibration.get("refine_interval_frames", 15)
             ),
+            calibration_lock_after_repetitions=int(
+                calibration.get("lock_after_repetitions", 3)
+            ),
             quality_recovery_frames=int(pose_quality.get("recovery_frames", 5)),
         )
     except (TypeError, ValueError) as exc:

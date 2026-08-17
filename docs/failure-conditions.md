@@ -9,6 +9,10 @@ ideal-condition accuracy.
 
 **Status key:** ✅ tested · ⚠️ partly · ❌ untested
 
+Six conditions have now been tested against real recordings. Every one of them
+either found a defect or retired a suspicion, which is the argument for
+recording the awkward cases rather than more clean ones.
+
 ---
 
 ## 1. Framing and position
@@ -30,14 +34,15 @@ ideal-condition accuracy.
 | Slow repetitions | ✅ | `sts_slow_001`: 5.5 and 6.4 s repetitions counted correctly. |
 | Fast repetitions | ✅ | 1.8 s repetitions counted correctly. |
 | Partial stand | ✅ | Four abandoned stands in `sts_awkward_001`, all now partials. Two were counted as complete before the standing-dwell rule: an abandoned stand held 0.30s where 43 genuine ones all held at least 1.00s. |
-| Pause mid-movement | ❌ | **Known weakness.** Rising is confirmed by upward velocity, so pausing part-way through a rise drops the confirmation and RISING may never be entered. |
+| Pause mid-movement | ✅ | Suspected weakness, **retired**. Four repetitions with a deliberate pause during the rise were all detected, with rise times of 6.5, 3.5, 2.0 and 1.6 s. The velocity confirmation is only needed to *enter* RISING, which a slow rise still satisfies. |
 | Hand support / pushing off the thighs | ❌ | No detection of support use at all yet. |
 | Sitting down heavily | ⚠️ | `rapid_descent` exists and is participant-relative, but has never fired on real movement. |
 | Using an armrest | ❌ | |
 | Shuffling forward on the seat first | ❌ | |
 | Extra unrelated movement | ❌ | |
 | Failed attempt — tries and cannot rise | ❌ | |
-| Standing up for a reason other than the exercise | ✅ | **The engine counts movements, not intentions.** A participant who stood up to finish and switch the machine off produced two complete stand-sit cycles, indistinguishable from repetitions. Not an algorithm fault: the exercise ends when the participant signals, so the signal must come before they get up. |
+| Standing up for a reason other than the exercise | ✅ | Rising to walk away reached hip height 0.482 and 0.464 against 0.528 for exercise repetitions — measurably lower, and correctly rejected once calibration stopped chasing the movement down. Still signal before getting up: it is cleaner than relying on the height difference. |
+| Deliberately incomplete rises | ✅ | `sts_incomplete_001`. Reached 0.380 against 0.434 for full repetitions. All four were counted until calibration was frozen after establishment. |
 
 ## 3. Environment and lighting
 

@@ -27,8 +27,8 @@ Builds 0–6 of 9 complete. STS-001 sit-to-stand is recognised end to end.
 | Measure | Standing |
 |---|---|
 | Tests | 348 passing |
-| Regression dataset | 5 cases, 61 repetitions, **one participant** |
-| Count agreement | 96.7% |
+| Regression dataset | 6 cases, 73 repetitions, **one participant** |
+| Count agreement | 97.3% |
 | False repetitions | 0 |
 
 The target in Doc 03 §49 is met. It is met on four clean takes by one person in

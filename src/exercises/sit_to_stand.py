@@ -201,6 +201,26 @@ class StsConfig:
             recomputed while no repetition is in progress. Refining only on
             return to sitting is not enough: a badly calibrated engine never
             reaches sitting, so it could never correct itself.
+        calibration_lock_after_repetitions: After this many completed
+            repetitions the reference may widen but never narrow.
+
+            Calibration that keeps adapting cannot detect reduced movement,
+            because the reference follows the movement down. Observed: a
+            participant performed ten full repetitions reaching a hip height
+            of 0.434, then four deliberately incomplete rises reaching only
+            0.380. Calibration had by then re-learned standing as 0.373, so
+            every incomplete rise measured as *above* full standing and all
+            four were counted.
+
+            That is the wrong direction for a rehabilitation measure. A
+            participant whose stands get shallower through fatigue should
+            produce partial repetitions, not have the bar quietly lowered to
+            meet them.
+
+            Widening is still allowed, so someone who warms up and stands
+            taller extends their own range. A tracking loss long enough to
+            suggest they have moved still discards everything and starts
+            again, which is the legitimate reason to recalibrate.
         calibration_reset_after_suspension_ms: Tracking loss longer than this
             discards the heights gathered so far. Hip height in image units
             says nothing about position in the room, so once the participant
@@ -253,6 +273,7 @@ class StsConfig:
     calibration_requires_good_quality: bool = True
     calibration_refine: bool = True
     calibration_refine_interval_frames: int = 15
+    calibration_lock_after_repetitions: int = 3
     calibration_reset_after_suspension_ms: float = 1000.0
     calibration_report_change: float = 0.05
     calibration_method: str = "cluster"
@@ -826,6 +847,11 @@ class SitToStandEngine(ExerciseEngine):
             return []
         previous = self._calibration
         if estimate.to_dict() == previous.to_dict():
+            return []
+        if len(self._completed) >= self._config.calibration_lock_after_repetitions:
+            # Established. It may widen if they stand taller, but it must not
+            # narrow to meet movement that has got smaller -- that is the
+            # signal, not the baseline.
             return []
         # Replaces in either direction. An earlier "only widen" rule was
         # needed while calibration came from percentiles, where a shallow

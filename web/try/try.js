@@ -29,6 +29,9 @@ const MODEL_URL =
   "https://storage.googleapis.com/mediapipe-models/pose_landmarker/" +
   "pose_landmarker_lite/float16/1/pose_landmarker_lite.task";
 
+// Absolute, so the worker resolves the same paths the page does.
+const ROOT_URL = new URL("../../", import.meta.url).href;
+
 const el = (id) => document.getElementById(id);
 const screens = ["intro", "howto", "exercise", "done"];
 
@@ -297,13 +300,20 @@ async function startExerciseScreen() {
       if (event.event === "rep_completed") setCue("Good — keep going.", "good");
       if (event.event === "partial_rep") setCue("Try to stand all the way up.", "warn");
     },
-    onError: () => {
+    onError: (message) => {
+      // Surfaced in the boot panel too. Reporting only in the cue left the
+      // spinner turning, so a failure was indistinguishable from a slow load.
+      if (!el("boot").hidden) {
+        el("boot").querySelector(".spinner").style.visibility = "hidden";
+        el("boot-stage").textContent = "Could not load the counter";
+        el("boot-detail").textContent = message;
+      }
       setCue("Counting is unavailable, but you can still try the movement.", "warn");
     },
   });
 
   try {
-    await state.scorer.load("../");
+    await state.scorer.load(ROOT_URL);
     el("boot-stage").textContent = "Asking for the camera";
     await startCamera();
 

@@ -26,16 +26,22 @@ export class PythonScorer {
     this.waiting = new Map();
   }
 
-  /** Load the engine. Slow the first time; the browser caches it after. */
-  load(baseUrl = "./") {
+  /**
+   * Load the engine. Slow the first time; the browser caches it after.
+   *
+   * `rootUrl` must be absolute and point at the repository root. A worker
+   * resolves relative URLs against its own location rather than the page's,
+   * so a relative base silently fetched the wrong paths.
+   */
+  load(rootUrl) {
     return new Promise((resolve, reject) => {
-      this.worker = new Worker(`${baseUrl}scorer-worker.js`);
+      this.worker = new Worker(new URL("web/scorer-worker.js", rootUrl));
       this.worker.onmessage = (event) => this._receive(event.data, resolve, reject);
       this.worker.onerror = (error) => {
         this.onError(`Engine failed to start: ${error.message}`);
         reject(error);
       };
-      this.worker.postMessage({ type: "init", baseUrl });
+      this.worker.postMessage({ type: "init", rootUrl: String(rootUrl) });
     });
   }
 

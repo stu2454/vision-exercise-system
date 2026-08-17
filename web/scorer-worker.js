@@ -26,7 +26,7 @@ function report(stage, detail = "") {
   self.postMessage({ type: "progress", stage, detail });
 }
 
-async function initialise(baseUrl) {
+async function initialise(rootUrl) {
   report("loading", "Starting Python runtime");
   pyodide = await loadPyodide({
     indexURL: `https://cdn.jsdelivr.net/pyodide/v${PYODIDE_VERSION}/full/`,
@@ -37,14 +37,31 @@ async function initialise(baseUrl) {
   await pyodide.loadPackage("pyyaml");
 
   report("loading", "Fetching the exercise engine");
-  const manifest = await (await fetch(`${baseUrl}python-manifest.json`)).json();
+  // Absolute URLs throughout. Relative fetches inside a worker resolve
+  // against the worker's own location, not the page's, which silently
+  // requested the wrong path and returned a 404 HTML page.
+  const manifestUrl = new URL("web/python-manifest.json", rootUrl).href;
+  const manifestResponse = await fetch(manifestUrl);
+  if (!manifestResponse.ok) {
+    throw new Error(`could not fetch ${manifestUrl} (${manifestResponse.status})`);
+  }
+  const manifest = await manifestResponse.json();
 
-  for (const relative of manifest.files) {
-    const response = await fetch(`${baseUrl}${relative}`);
-    if (!response.ok) {
-      throw new Error(`could not fetch ${relative} (${response.status})`);
-    }
-    const text = await response.text();
+  // Fetched together rather than one after another: they are small files and
+  // the round trips dominate.
+  const sources = await Promise.all(
+    manifest.files.map(async (relative) => {
+      const url = new URL(relative, rootUrl).href;
+      const response = await fetch(url);
+      if (!response.ok) {
+        throw new Error(`could not fetch ${relative} (${response.status})`);
+      }
+      return [relative, await response.text()];
+    }),
+  );
+  report("loading", `Fetched ${sources.length} files`);
+
+  for (const [relative, text] of sources) {
     const directory = relative.substring(0, relative.lastIndexOf("/"));
     if (directory) pyodide.FS.mkdirTree(`/app/${directory}`);
     pyodide.FS.writeFile(`/app/${relative}`, text);
@@ -105,7 +122,7 @@ self.onmessage = async (event) => {
   const { type, id } = event.data;
   try {
     if (type === "init") {
-      await initialise(event.data.baseUrl);
+      await initialise(event.data.rootUrl);
       return;
     }
     if (!ready) {

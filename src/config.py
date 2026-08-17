@@ -245,6 +245,9 @@ def load_sts_config(path: Path | str | None = None) -> "StsConfig":
             seated_enter=float(machine.get("seated_enter", 0.20)),
             minimum_dwell_ms=float(machine.get("minimum_dwell_ms", 100.0)),
             minimum_rise_velocity=float(machine.get("minimum_rise_velocity", 0.02)),
+            minimum_standing_seconds=float(
+                repetition.get("minimum_standing_seconds", 0.4)
+            ),
             minimum_rep_seconds=float(repetition.get("minimum_rep_seconds", 0.8)),
             maximum_rep_seconds=float(repetition.get("maximum_rep_seconds", 20.0)),
             rapid_descent_seconds=float(quality.get("rapid_descent_seconds", 0.20)),
@@ -255,7 +258,12 @@ def load_sts_config(path: Path | str | None = None) -> "StsConfig":
             calibration_minimum_travel=float(calibration.get("minimum_travel", 0.04)),
             calibration_low_percentile=float(calibration.get("low_percentile", 0.05)),
             calibration_high_percentile=float(calibration.get("high_percentile", 0.95)),
-            calibration_window=int(calibration.get("window_frames", 300)),
+            calibration_window_seconds=float(
+                calibration.get("window_seconds", 10.0)
+            ),
+            calibration_minimum_cluster_share=float(
+                calibration.get("minimum_cluster_share", 0.20)
+            ),
             calibration_method=str(calibration.get("method", "cluster")),
             calibration_cluster_minimum_samples=int(
                 calibration.get("cluster_minimum_samples", 30)

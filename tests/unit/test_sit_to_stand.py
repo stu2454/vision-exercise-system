@@ -225,7 +225,8 @@ class TestImplausibleRepetitions:
     def test_an_impossibly_fast_cycle_is_rejected(self):
         # Prefer a missed repetition to a false one (Document 03 §49).
         engine = calibrated_engine(
-            StsConfig(minimum_dwell_ms=0.0, minimum_rep_seconds=2.0)
+            StsConfig(minimum_dwell_ms=0.0, minimum_rep_seconds=2.0,
+                      minimum_standing_seconds=0.0)
         )
         session = self._too_fast(engine)
         assert engine.valid_repetitions == 0
@@ -235,7 +236,8 @@ class TestImplausibleRepetitions:
 
     def test_a_rejected_repetition_does_not_inflate_attempts(self):
         engine = calibrated_engine(
-            StsConfig(minimum_dwell_ms=0.0, minimum_rep_seconds=2.0)
+            StsConfig(minimum_dwell_ms=0.0, minimum_rep_seconds=2.0,
+                      minimum_standing_seconds=0.0)
         )
         self._too_fast(engine)
         assert engine.result().attempted_repetitions == 0
@@ -243,8 +245,11 @@ class TestImplausibleRepetitions:
     def test_the_same_cycle_counts_when_the_bound_permits_it(self):
         # Confirms the rejection is about the duration bound, not a
         # structural failure to recognise the movement.
+        # The standing dwell is disabled here: this fixture holds standing for
+        # only 0.1s and the test is about the duration bound, not the dwell.
         engine = calibrated_engine(
-            StsConfig(minimum_dwell_ms=0.0, minimum_rep_seconds=0.1)
+            StsConfig(minimum_dwell_ms=0.0, minimum_rep_seconds=0.1,
+                      minimum_standing_seconds=0.0)
         )
         self._too_fast(engine)
         assert engine.valid_repetitions == 1
@@ -449,7 +454,8 @@ class TestResultContract:
 
     def test_rapid_descent_raises_a_quality_flag(self):
         engine = calibrated_engine(
-            StsConfig(minimum_dwell_ms=0.0, rapid_descent_seconds=0.4, minimum_rep_seconds=0.3)
+            StsConfig(minimum_dwell_ms=0.0, rapid_descent_seconds=0.4,
+                      minimum_rep_seconds=0.3, minimum_standing_seconds=0.0)
         )
         session = Session(engine).feed(SEATED_HEIGHT, 5)
         session.ramp(SEATED_HEIGHT, STANDING_HEIGHT, 10).feed(STANDING_HEIGHT, 2)
@@ -489,6 +495,55 @@ class TestDeterminism:
         engine.initialise(CALIBRATION)
         assert engine.valid_repetitions == 0
         assert engine.state is StsState.NO_PERSON
+
+
+class TestStandingMustBeHeld:
+    """Touching standing height is not the same as achieving it.
+
+    Across 43 confirmed-genuine repetitions in four recordings the shortest
+    standing time was 1.00s. An abandoned stand, described as such by the
+    participant, held for 0.30s and was counted as a complete repetition.
+    """
+
+    @staticmethod
+    def _stand_briefly(engine, hold: int) -> Session:
+        session = Session(engine).feed(SEATED_HEIGHT, 5)
+        session.ramp(SEATED_HEIGHT, STANDING_HEIGHT, 24)
+        session.feed(STANDING_HEIGHT, hold)
+        session.ramp(STANDING_HEIGHT, SEATED_HEIGHT, 24).feed(SEATED_HEIGHT, 12)
+        return session
+
+    def test_a_stand_that_is_not_held_is_a_partial(self):
+        # 0.8s here rather than the 0.4s default: the fixture's standing time
+        # includes the dwell spent entering DESCENDING, so a one-frame hold
+        # still measures 0.5s. The mechanism is what is under test.
+        engine = calibrated_engine(StsConfig(minimum_standing_seconds=0.8))
+        session = self._stand_briefly(engine, hold=1)
+        assert engine.valid_repetitions == 0
+        assert engine.result().partial_repetitions == 1
+        partial = next(e for e in session.events if e.event is EventType.PARTIAL_REP)
+        assert partial.payload["reason"] == "standing_not_held"
+
+    def test_a_stand_that_is_held_counts(self):
+        engine = calibrated_engine(StsConfig(minimum_standing_seconds=0.8))
+        self._stand_briefly(engine, hold=30)
+        assert engine.valid_repetitions == 1
+
+    def test_an_abandoned_stand_does_not_inflate_the_count(self):
+        # The failure this prevents: an abandoned attempt counted as complete
+        # is a false positive, the error the project prefers least.
+        engine = calibrated_engine(StsConfig(minimum_standing_seconds=0.8))
+        session = Session(engine).feed(SEATED_HEIGHT, 5)
+        for _ in range(3):
+            session.repetition()
+        for _ in range(3):
+            self._stand_briefly(engine, hold=1)
+        assert engine.valid_repetitions == 3
+
+    def test_the_threshold_sits_well_below_real_repetitions(self):
+        # 1.00s was the shortest genuine stand observed; the default must
+        # leave margin rather than sitting against it.
+        assert StsConfig().minimum_standing_seconds <= 0.5
 
 
 class TestRapidDescentIsRelative:

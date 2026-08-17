@@ -34,6 +34,12 @@ state_machine:
   minimum_rise_velocity: 0.02
 
 repetition:
+  # The participant must stay standing this long for it to count. Touching
+  # standing height and dropping straight back is an abandoned attempt.
+  # Across 43 confirmed-genuine repetitions the shortest stand was 1.00s;
+  # an abandoned stand the participant described as such held 0.30s and was
+  # counted as complete. This sits between them with margin either side.
+  minimum_standing_seconds: 0.4
   # Faster than a person can sit and stand: a detection artefact, discarded.
   # Rejecting these keeps false positives low, which matters more than raw
   # count accuracy (Document 03 §49).
@@ -69,10 +75,18 @@ calibration:
   # from 9 cycles to 2 on a real recording.
   low_percentile: 0.05
   high_percentile: 0.95
-  # Trailing window, oldest frames discarded. Ten seconds at 30 fps spans
-  # about three repetitions: enough to see both postures, short enough that
-  # where the participant stood a minute ago stops mattering.
-  window_frames: 300
+  # Trailing window in SECONDS, not frames. Expressed as 300 frames this
+  # meant ten seconds at 30 fps but only four at the 74.8 fps a browser
+  # negotiated, and a participant standing still for 11.8s emptied the
+  # window of every seated sample.
+  window_seconds: 10.0
+  # Least share of the window each posture must hold for a new estimate to
+  # be accepted. Without it, a long stand leaves the window containing
+  # almost nothing but standing and the split separates standing from
+  # standing: calibrated travel collapsed from 0.114 to 0.040, after which
+  # any half-hearted rise cleared the standing threshold and four abandoned
+  # repetitions were counted as complete.
+  minimum_cluster_share: 0.20
   # percentile | cluster. Cluster splits observed heights into seated and
   # standing groups and takes each median, which walking about barely moves.
   method: cluster

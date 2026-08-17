@@ -121,6 +121,16 @@ class StsConfig:
         minimum_rise_velocity: Upward hip speed required to confirm rising,
             in image heights per second. Guards against drift across the
             threshold while stationary.
+        minimum_standing_seconds: How long the participant must remain
+            standing for the repetition to count. Touching standing height
+            and dropping straight back is an abandoned attempt, not a
+            completed repetition.
+
+            Across 43 confirmed-genuine repetitions in four recordings the
+            shortest standing time was 1.00 s. An abandoned stand, described
+            as such by the participant, held for 0.30 s and was counted as
+            complete. The threshold sits between them with a wide margin
+            rather than close to either.
         minimum_rep_seconds: Repetitions faster than this are implausible for
             a human and are rejected as detection artefacts.
         maximum_rep_seconds: Beyond this the movement is treated as abandoned
@@ -163,14 +173,30 @@ class StsConfig:
         calibration_low_percentile: Percentile of observed hip height taken as
             seated, when the percentile method is in use.
         calibration_high_percentile: Percentile taken as standing.
-        calibration_window: Frames retained for calibration, oldest first
-            discarded. A trailing window rather than the whole session: a
-            participant who spends the first fifteen seconds elsewhere in
-            the room would otherwise have that position treated as their
-            seated reference for the rest of the attempt, which is exactly
-            what happened on a real recording and left every repetition
-            uncounted. Ten seconds at 30 fps spans about three repetitions,
-            enough to see both postures while letting stale data age out.
+        calibration_window_seconds: How much recent history calibration
+            draws on, in **seconds**. A trailing window rather than the whole
+            session: a participant who spends the first fifteen seconds
+            elsewhere in the room would otherwise have that position treated
+            as their seated reference for the rest of the attempt.
+
+            Measured in time, not frames, for the same reason the filters
+            are. Expressed as 300 frames it meant ten seconds at 30 fps but
+            only four at the 74.8 fps a browser negotiated, and a
+            participant who stood still for 11.8 seconds emptied the window
+            of every seated sample.
+        calibration_minimum_cluster_share: Least share of the window each of
+            the seated and standing clusters must hold for an estimate to be
+            accepted.
+
+            Without this, a long stand leaves a window containing almost
+            nothing but standing, the split has to fall somewhere, and it
+            splits standing from standing. Observed: calibrated travel
+            collapsing from 0.114 to 0.040, after which any half-hearted
+            rise clears the standing threshold and is counted. Four
+            repetitions the participant abandoned were counted as complete.
+
+            When the estimate is rejected the previous calibration is kept,
+            which is the conservative direction.
         calibration_refine_interval_frames: How often calibration may be
             recomputed while no repetition is in progress. Refining only on
             return to sitting is not enough: a badly calibrated engine never
@@ -212,6 +238,7 @@ class StsConfig:
     minimum_dwell_ms: float = 100.0
     minimum_rise_velocity: float = 0.02
 
+    minimum_standing_seconds: float = 0.4
     minimum_rep_seconds: float = 0.8
     maximum_rep_seconds: float = 20.0
     rapid_descent_seconds: float = 0.20
@@ -221,7 +248,8 @@ class StsConfig:
     calibration_minimum_travel: float = 0.04
     calibration_low_percentile: float = 0.05
     calibration_high_percentile: float = 0.95
-    calibration_window: int = 300
+    calibration_window_seconds: float = 10.0
+    calibration_minimum_cluster_share: float = 0.20
     calibration_requires_good_quality: bool = True
     calibration_refine: bool = True
     calibration_refine_interval_frames: int = 15
@@ -309,7 +337,7 @@ class SitToStandEngine(ExerciseEngine):
         self._state = StsState.NO_PERSON
         self._calibration: Optional[StsCalibration] = None
         self._calibration_is_explicit = False
-        self._heights: list[float] = []
+        self._heights: list[tuple[float, float]] = []
         self._candidate: Optional[StsState] = None
         self._candidate_since_ms: Optional[float] = None
         self._current: Optional[_Repetition] = None
@@ -436,7 +464,7 @@ class SitToStandEngine(ExerciseEngine):
             events.append(self._event(EventType.PARTICIPANT_DETECTED, now))
             self._state = StsState.CALIBRATING
 
-        self._observe_height(hip_height, quality)
+        self._observe_height(hip_height, quality, now)
         if self._calibration is None:
             events.extend(self._calibrate(now))
             if self._calibration is None:
@@ -577,6 +605,27 @@ class SitToStandEngine(ExerciseEngine):
                 )
             ]
 
+        standing_s = (
+            (rep.descent_started_ms - rep.stood_ms) / 1000.0
+            if rep.descent_started_ms is not None
+            else 0.0
+        )
+        if standing_s < self._config.minimum_standing_seconds:
+            # Standing was reached but not held: an abandoned attempt. Counted
+            # as partial, which does not penalise the participant and does not
+            # inflate the repetition count (Document 03 §49).
+            self._partial += 1
+            return [
+                self._event(
+                    EventType.PARTIAL_REP, now, rep.sequence,
+                    payload={
+                        "reason": "standing_not_held",
+                        "standing_time_seconds": round(standing_s, 3),
+                        "peak_normalised_height": round(rep.peak_normalised, 3),
+                    },
+                )
+            ]
+
         rep.completed_ms = now
         descent_from = rep.descent_started_ms if rep.descent_started_ms else rep.stood_ms
         descent_s = (now - descent_from) / 1000.0
@@ -675,31 +724,39 @@ class SitToStandEngine(ExerciseEngine):
 
     # -------------------------------------------------------- calibration
 
-    def _observe_height(self, hip_height: float, quality: PoseQualityReport) -> None:
+    def _observe_height(
+        self, hip_height: float, quality: PoseQualityReport, now: float
+    ) -> None:
         """Retain a hip height for calibration, if it can be trusted."""
         if (
             self._config.calibration_requires_good_quality
             and quality.status is not PoseQualityStatus.GOOD
         ):
             return
-        self._heights.append(hip_height)
-        if len(self._heights) > self._config.calibration_window:
+        self._heights.append((now, hip_height))
+        cutoff = now - self._config.calibration_window_seconds * 1000.0
+        while self._heights and self._heights[0][0] < cutoff:
             self._heights.pop(0)
 
     def _estimate(self) -> Optional[StsCalibration]:
         """Estimate seated and standing heights from observed movement."""
         config = self._config
-        if len(self._heights) < 10:
+        heights = [height for _, height in self._heights]
+        if len(heights) < 10:
             return None
 
         if (
             config.calibration_method == "cluster"
-            and len(self._heights) >= config.calibration_cluster_minimum_samples
+            and len(heights) >= config.calibration_cluster_minimum_samples
         ):
-            low, high = _cluster_reference(self._heights)
+            low, high, share = _cluster_reference(heights)
+            if share < config.calibration_minimum_cluster_share:
+                # One posture dominates the window, so the split is separating
+                # standing from standing. Keep whatever calibration we have.
+                return None
             source = "movement_cluster"
         else:
-            ordered = sorted(self._heights)
+            ordered = sorted(heights)
             last = len(ordered) - 1
             low = ordered[min(int(config.calibration_low_percentile * len(ordered)), last)]
             high = ordered[min(int(config.calibration_high_percentile * len(ordered)), last)]
@@ -711,7 +768,7 @@ class SitToStandEngine(ExerciseEngine):
             seated_hip_height=low,
             standing_hip_height=high,
             source=source,
-            samples=len(self._heights),
+            samples=len(heights),
         )
 
     def _calibrate(self, now: float) -> list[Event]:
@@ -917,7 +974,7 @@ class SitToStandEngine(ExerciseEngine):
         )
 
 
-def _cluster_reference(heights: list[float]) -> tuple[float, float]:
+def _cluster_reference(heights: list[float]) -> tuple[float, float, float]:
     """Split hip heights into a seated and a standing cluster.
 
     Sit-to-stand spends most of its time either seated or standing, with
@@ -933,6 +990,10 @@ def _cluster_reference(heights: list[float]) -> tuple[float, float]:
     The split point is chosen to maximise between-cluster variance (Otsu's
     method), and each reference is the *median* of its cluster, which a tail
     of walking frames barely moves.
+
+    Returns the two references and the share of samples held by the smaller
+    cluster. A small share means one posture dominates the window and the
+    split is separating standing from standing, which the caller must reject.
     """
     ordered = sorted(heights)
     count = len(ordered)
@@ -953,7 +1014,8 @@ def _cluster_reference(heights: list[float]) -> tuple[float, float]:
             best_variance, best_index = variance, index
 
     lower, upper = ordered[:best_index], ordered[best_index:]
-    return _median(lower), _median(upper)
+    share = min(len(lower), len(upper)) / count
+    return _median(lower), _median(upper), share
 
 
 def _median(values: list[float]) -> float:

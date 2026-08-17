@@ -7,6 +7,14 @@ Last updated: **17 August 2026**, after the browser sandbox and the awkward-take
 
 ---
 
+## Live demo
+
+<https://stu2454.github.io/vision-exercise-system/web/try/>
+
+Participant mode on GitHub Pages, running the real Python engine in the
+browser under Pyodide. Instructions to send with the link:
+`docs/for-testers.md`.
+
 ## Paste this
 
 ```text

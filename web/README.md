@@ -1,5 +1,19 @@
 # Browser Pose Sandbox
 
+There are two pages here:
+
+| Page | For | Runs |
+|---|---|---|
+| `web/` | Development | Pose only, or live scoring via `tools/exercise_server.py` |
+| `web/try/` | Participants | Pose **and** scoring, entirely in the browser under Pyodide |
+
+`web/try/` is deployed at
+<https://stu2454.github.io/vision-exercise-system/web/try/> and needs no
+server: it runs the project's actual Python modules under WebAssembly, so
+there is one exercise engine and a participant's movement never leaves their
+device. See `docs/for-testers.md` for what to send a tester.
+
+
 A **spike, not a port.** It answers one question — does pose estimation run
 acceptably in a browser, on this machine and on a tablet? — and stops at pose.
 

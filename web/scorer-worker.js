@@ -27,16 +27,19 @@ function report(stage, detail = "") {
 }
 
 async function initialise(rootUrl) {
-  report("loading", "Starting Python runtime");
+  // Roughly 13 MB the first time: the WebAssembly Python runtime and its
+  // standard library. Saying so is better than an unexplained wait — the
+  // browser caches it, so later visits skip this entirely.
+  report("loading", "Downloading the exercise engine (about 13 MB, first visit only)");
   pyodide = await loadPyodide({
     indexURL: `https://cdn.jsdelivr.net/pyodide/v${PYODIDE_VERSION}/full/`,
   });
 
   // Configuration is read from YAML at runtime, so the parser has to be here.
-  report("loading", "Loading configuration support");
+  report("loading", "Reading the exercise settings");
   await pyodide.loadPackage("pyyaml");
 
-  report("loading", "Fetching the exercise engine");
+  report("loading", "Loading the sit-to-stand engine");
   // Absolute URLs throughout. Relative fetches inside a worker resolve
   // against the worker's own location, not the page's, which silently
   // requested the wrong path and returned a 404 HTML page.
@@ -59,7 +62,7 @@ async function initialise(rootUrl) {
       return [relative, await response.text()];
     }),
   );
-  report("loading", `Fetched ${sources.length} files`);
+  report("loading", `Loaded ${sources.length} files`);
 
   for (const [relative, text] of sources) {
     const directory = relative.substring(0, relative.lastIndexOf("/"));
@@ -67,7 +70,7 @@ async function initialise(rootUrl) {
     pyodide.FS.writeFile(`/app/${relative}`, text);
   }
 
-  report("loading", "Starting the exercise engine");
+  report("loading", "Almost ready");
   pyodide.runPython(`
 import sys, os
 sys.path.insert(0, "/app")

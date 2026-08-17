@@ -49,9 +49,13 @@ switch off **Edge Light**, and **Centre Stage** if you see it.
 
 ## What will happen
 
-1. **The page loads the software.** The first time this takes up to a minute,
-   because it downloads the exercise engine. A spinner says what it is doing.
-   After that it is quick.
+1. **The page loads the software.** The first visit downloads about 13 MB and
+   **can take a minute or two** — longer on a slow connection. A spinner says
+   what it is doing. Your browser keeps it, so every visit after that starts in
+   seconds.
+
+   If it is still going after five minutes, something is wrong: tell Stuart
+   what the spinner last said.
 
 2. **Your browser asks for the camera.** Allow it. Nothing works otherwise.
 

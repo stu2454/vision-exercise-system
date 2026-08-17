@@ -3,7 +3,7 @@
 **Open this first.** Paste the prompt below into Claude Code, then read the
 rest if you need reminding where things stand.
 
-Last updated: **17 August 2026**, after the browser sandbox and the awkward-take fixes.
+Last updated: **17 August 2026**, after deploying the browser demo.
 
 ---
 
@@ -11,15 +11,19 @@ Last updated: **17 August 2026**, after the browser sandbox and the awkward-take
 
 <https://stu2454.github.io/vision-exercise-system/web/try/>
 
-Participant mode on GitHub Pages, running the real Python engine in the
-browser under Pyodide. Instructions to send with the link:
-`docs/for-testers.md`.
+Participant mode on GitHub Pages, running the real Python engine in the browser
+under Pyodide. Nothing leaves the tester's device. Instructions written to be
+forwarded as they stand: `docs/for-testers.md`.
+
+**Caveat:** nothing in the test suite verifies that this page executes. Three
+faults reached it that 385 tests did not catch. Open it yourself after any
+change to `web/`.
 
 ## Paste this
 
 ```text
 Read docs/development-log.md, then run python tools/evaluate.py.
-We're recording awkward and failed sit-to-stands next.
+Next is Build 8: single leg stance, timed, eyes open and closed.
 ```
 
 That is enough to orient a cold session. The log carries what was built, the
@@ -34,10 +38,11 @@ Builds 0–6 of 9 complete. STS-001 sit-to-stand is recognised end to end.
 
 | Measure | Standing |
 |---|---|
-| Tests | 348 passing |
+| Tests | 385 passing |
 | Regression dataset | 6 cases, 73 repetitions, **one participant** |
 | Count agreement | 97.3% |
 | False repetitions | 0 |
+| Failure conditions tested | 6 of ~30 |
 
 The target in Doc 03 §49 is met. It is met on four clean takes by one person in
 one room, which is why the next step is what it is.
@@ -46,25 +51,29 @@ one room, which is why the next step is what it is.
 
 ## What we agreed to do next
 
-**Record deliberately awkward and failed attempts**, especially the patterns an
-older adult would produce:
+**Build 8: single leg stance, timed, with and without eyes closed.**
 
-- hesitation before committing to the rise
-- partial stands — up halfway, then back down
-- pushing up off the thighs with the hands
-- pausing mid-movement
-- sitting down heavily
-- using an armrest
-- shuffling forward on the seat first
+Its purpose in the sequence is architectural, not clinical: can a second
+exercise use the same canonical pose, feature, event and storage
+infrastructure without special-case rewrites? If it needs the core changed,
+the abstraction is not earning its keep.
 
-Cases the algorithm handles **badly** are the valuable ones. A dataset of clean
-takes cannot tell us where the thresholds are still wrong.
+Four things to settle before writing code:
 
-Use `--record-video` on these. Counts have been disputed twice already, and
-video makes them decidable by watching rather than by inference.
+1. **It is a timed hold, not a repetition count.** The result contract and the
+   state model both differ from STS-001. Doc 03 §19 sketches
+   `SETUP → TARGET_STANCE → HOLDING → COMPLETED / RECOVERY_STEP / SUPPORT_USED`.
+2. **Eyes closed is probably not observable.** MediaPipe Pose carries no eyelid
+   detail, and face landmarks at 2–3 m would not support it reliably anyway. It
+   likely has to be a protocol instruction recorded as metadata — and if so the
+   system must not imply it verified anything.
+3. **Sway from a single camera is not centre-of-pressure sway** (CLAUDE.md §37).
+   Level 2 at best, and it must be labelled as such.
+4. **Recovery steps and reaching for support** are the clinically interesting
+   events, and neither is currently detectable.
 
-**Then** Build 7 (participant feedback) — deliberately not before, so feedback
-is not built on thresholds that have only ever seen clean movement.
+Still outstanding for STS-001: hand support and armrest use are untested, and
+`docs/failure-conditions.md` lists roughly two dozen other untested conditions.
 
 ---
 

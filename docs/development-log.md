@@ -1,9 +1,9 @@
 # Development Log
 
 **Project:** Vision Exercise System
-**Period covered:** 15–16 August 2026
-**Phase:** Technical prototype — Builds 0–6 complete
-**Status:** STS-001 sit-to-stand recognised end to end, 95.6% count agreement, zero false positives
+**Period covered:** 15–17 August 2026
+**Phase:** Technical prototype — Builds 0–6 complete, deployed for external testing
+**Status:** STS-001 recognised end to end, 97.3% count agreement over 73 repetitions, zero false positives
 
 This log records what was built, what broke, and what the evidence said. It is
 appended to as work proceeds. Where a decision was made on evidence, the
@@ -407,3 +407,188 @@ stress-tested rather than on ones that have only seen clean movement.
    ground truth.
 5. **Say what has not been shown.** A number measured on four takes by one
    person is reported as exactly that.
+
+---
+
+# Day 3 — 17 August 2026
+
+Two threads: putting the system in front of someone else, and the awkward
+recordings that the previous day's plan called for. The awkward recordings
+found more than everything before them combined.
+
+## 9. The browser
+
+### 9.1 A spike, not a port
+
+`web/` runs pose estimation in a browser and stops there. No filtering,
+features or state machine: Document 03 §7 and ADR-010 are explicit that the two
+implementations must not be built at once while the movement model is still
+changing. A test fails if the exercise thresholds appear in the JavaScript, so
+the boundary is enforced rather than remembered.
+
+Measured on the same laptop, same model file:
+
+| | Python | Browser |
+|---|---|---|
+| Inference | 10.6 ms | 13.3 ms |
+| Sustained | 80 fps | 59.9 fps (display-capped) |
+
+The browser also negotiates far higher capture rates than OpenCV does — up to
+**74.8 fps** against 30 — which turned out to matter (§10.1).
+
+### 9.2 Recordings are interchangeable
+
+The browser writes the same JSON Lines format as the Python recorder, and both
+runtimes load the identical model file, so a difference between them is the
+runtime rather than the model. `tests/unit/test_web_parity.py` reads the
+JavaScript as text and compares the landmark map, the gesture thresholds and
+the version constants against the Python source of truth.
+
+## 10. Defects found by the awkward recordings
+
+### 10.1 The calibration window was measured in frames
+
+300 frames is ten seconds at 30 fps and **four** at the 74.8 fps the browser
+negotiated. A participant held standing for 11.8 seconds, which emptied the
+window of every seated sample. The cluster split then separated standing from
+standing and calibrated travel collapsed from 0.114 to 0.040, after which any
+half-hearted rise cleared the standing threshold.
+
+The same defect class as frame-counting filters, which were made
+timestamp-aware for exactly this reason. The lesson had been applied to
+filtering and features and not to calibration.
+
+Fixed: the window is in seconds, and an estimate is rejected unless each
+cluster holds at least a fifth of it.
+
+### 10.2 Touching standing height is not achieving it
+
+Across 43 confirmed-genuine repetitions the shortest standing time was
+**1.00 s**. An abandoned stand held for **0.30 s** and was counted. A
+repetition now requires standing to be held for `minimum_standing_seconds`,
+default 0.4 s, sitting between the two with margin either side.
+
+### 10.3 Calibration that adapts cannot detect what it adapts to
+
+The most important finding of the three days.
+
+Ten full repetitions reached a hip height of 0.434. Four deliberately
+incomplete rises reached 0.380 — a real, measurable difference. But calibration
+had by then re-learned standing as **0.373**, so every incomplete rise measured
+as *above* full standing and all four were counted.
+
+The reference was following the movement down. **That is the wrong direction
+for a rehabilitation measure**: a participant whose stands get shallower
+through fatigue should produce partial repetitions, not have the bar quietly
+lowered to meet them.
+
+Calibration now freezes after three completed repetitions. A tracking loss long
+enough to suggest the participant has moved still discards it and starts again,
+which is the legitimate reason to recalibrate.
+
+### 10.4 The operating system was changing the lighting
+
+**macOS Edge Light** turns the display borders into a ring light whenever any
+application activates the camera. Applied by the operating system, never
+requested. The participant's illumination therefore stops being independent of
+the application, which is the variable a home-environment test is meant to hold
+still. Centre Stage would be worse — it pans and crops during movement, which
+is indistinguishable from the participant moving.
+
+Recorded in `docs/failure-conditions.md`. We cannot detect these from inside
+the application, and no recording made before the discovery notes whether they
+were active.
+
+## 11. A suspicion retired, and a distinction learned
+
+**Pausing mid-rise was expected to fail.** Rising is confirmed by upward
+velocity, so a pause looked likely to stop RISING being entered at all. All
+four paused repetitions were detected, with rise times of 6.5, 3.5, 2.0 and
+1.6 s: the check only gates *entering* the state, which a slow rise still
+satisfies. A documented weakness removed by measurement rather than left as a
+warning.
+
+**The engine counts movements, not intentions.** A participant stood up twice
+to finish and switch the machine off, and those were first recorded as
+repetitions on the grounds that the engine could not know the difference. Raw
+hip height said otherwise — 0.482 and 0.464 against 0.528 for the exercise
+repetitions. Rising to walk away is not a sit-to-stand. Ground truth for that
+case was revised from 16 to 14, with the measurement recorded beside it.
+
+## 12. Deployment for external testing
+
+<https://stu2454.github.io/vision-exercise-system/web/try/>
+
+Participant mode (Document 05 §8, CLAUDE.md §27): introduction, instructions,
+then camera with positioning guidance in plain language, a large repetition
+count and one cue at a time. No frame rates, confidences, state names or
+technical errors.
+
+**The repetition counting is the project's own Python, running in the
+browser.** The whole scoring path turned out to be pure Python — no numpy, no
+OpenCV, no MediaPipe — so Pyodide executes the real modules under WebAssembly.
+One exercise engine, validated by the regression dataset, with nothing leaving
+the participant's device. A test asserts that path stays free of compiled
+dependencies, because one such import would force the second implementation
+this avoids.
+
+The file list is generated by walking imports, and verified by copying only
+those files into an empty directory and scoring a real recording there: 14
+repetitions and 5 partials, matching the full application exactly.
+
+Cost: **13 MB on the first visit**, almost all of it the Python runtime. Our own
+code is 131 KB. Cached afterwards.
+
+### 12.1 Three faults that only appeared in a browser
+
+- A grid list wrapped to one word per line, because a three-child item
+  auto-placed its third child into a 2.2 rem column.
+- The worker fetched `/python-manifest.json` rather than
+  `/web/python-manifest.json`. A worker resolves relative URLs against its own
+  location, not the page's.
+- That failure was invisible: the boot panel reported progress but never
+  failure, so a 404 looked identical to a slow load.
+
+All three were found by the participant running the page, none by the 385
+tests. **Nothing in this project verifies that the browser page executes**,
+which is now the largest untested surface.
+
+## 13. Position at the end of day 3
+
+| Measure | Standing |
+|---|---|
+| Tests | 385 |
+| Regression dataset | 6 cases, 73 repetitions, one participant |
+| Count agreement | 97.3% |
+| False repetitions | 0 |
+| Failure conditions tested | 6 of ~30 |
+
+Both remaining misses are calibration repetitions in recordings made before the
+start gesture existed.
+
+## 14. Next
+
+**Single leg stance, timed, with and without eyes closed.**
+
+This is Build 8, and its purpose in the sequence is architectural rather than
+clinical: *can a second exercise use the same canonical pose, feature, event
+and storage infrastructure without special-case rewrites?* If it needs the core
+changed, the abstraction is not carrying its weight.
+
+Points to settle before building:
+
+- It is a **timed hold**, not a repetition count, so the result contract and
+  the state model both differ from STS-001. Document 03 §19 sketches
+  `SETUP → TARGET_STANCE → HOLDING → COMPLETED / RECOVERY_STEP / SUPPORT_USED`.
+- **Eyes closed is probably not observable.** Face landmarks at 2–3 m are
+  unlikely to support eyelid state reliably, and MediaPipe Pose carries no
+  eyelid detail at all. It may have to be a protocol instruction recorded as
+  metadata rather than something detected — and if so, the system must not
+  imply it verified it.
+- The interesting measurements are Level 2 at best: sway amplitude from a
+  single camera is **not** centre-of-pressure sway (CLAUDE.md §37).
+- Recovery steps and reaching for support are the events that matter
+  clinically, and neither is currently detectable.
+
+Also outstanding: hand support and armrest use remain untested for STS-001, and
+the browser page has no automated verification at all.

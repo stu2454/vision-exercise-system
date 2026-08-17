@@ -1,0 +1,278 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sit to Stand — Vision Exercise System</title>
+<style>
+  /*
+    Participant mode (Document 05 §8, CLAUDE.md §27). Shows only what helps
+    someone perform the exercise: what to do, where to stand, how many they
+    have done. No confidence values, no state names, no frame rates, no
+    technical error strings — those live in the developer sandbox.
+
+    Sized for a room, not a desk: large text, large targets, strong contrast.
+  */
+  :root {
+    --ground: #10171a;
+    --surface: #182226;
+    --rule: #2b3a40;
+    --ink: #eef4f5;
+    --ink-soft: #a9bcc2;
+    --accent: #4fbfa8;
+    --accent-ink: #06231d;
+    --good: #6fd48f;
+    --warn: #f0b53c;
+    --sans: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 18px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 46rem; margin: 0 auto; padding: 2rem 1.25rem 4rem; }
+  .screen { display: none; }
+  .screen.active { display: block; }
+
+  h1 { font-size: clamp(1.8rem, 5vw, 2.4rem); line-height: 1.15; margin: 0 0 0.75rem; text-wrap: balance; }
+  h2 { font-size: 1.15rem; margin: 2rem 0 0.6rem; }
+  p { margin: 0 0 1rem; max-width: 34rem; }
+  .lead { font-size: 1.1rem; color: var(--ink-soft); }
+  .eyebrow {
+    font-size: 0.75rem; letter-spacing: 0.14em; text-transform: uppercase;
+    color: var(--accent); font-weight: 700; margin: 0 0 0.75rem;
+  }
+
+  ol.steps { padding-left: 0; list-style: none; counter-reset: s; margin: 0 0 1.5rem; }
+  ol.steps li {
+    counter-increment: s; display: grid; grid-template-columns: 2.2rem 1fr;
+    gap: 1rem; margin-bottom: 1rem; align-items: start;
+  }
+  ol.steps li::before {
+    content: counter(s);
+    background: var(--accent); color: var(--accent-ink);
+    width: 2rem; height: 2rem; border-radius: 50%;
+    display: grid; place-items: center; font-weight: 700; font-size: 0.95rem;
+  }
+  ol.steps strong { display: block; }
+  ol.steps span { color: var(--ink-soft); font-size: 0.95rem; }
+
+  button {
+    font-family: var(--sans); font-size: 1.05rem; font-weight: 700;
+    padding: 0.9rem 1.6rem; border-radius: 6px; cursor: pointer;
+    background: var(--accent); color: var(--accent-ink); border: none;
+    min-height: 3rem;
+  }
+  button:hover { filter: brightness(1.08); }
+  button.quiet {
+    background: transparent; color: var(--ink);
+    border: 1px solid var(--rule); font-weight: 600;
+  }
+  button:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
+  .buttons { display: flex; flex-wrap: wrap; gap: 0.75rem; margin-top: 1.5rem; }
+
+  .panel {
+    background: var(--surface); border: 1px solid var(--rule);
+    border-radius: 8px; padding: 1.25rem 1.4rem; margin: 1.5rem 0;
+  }
+  .panel h2 { margin-top: 0; }
+  .panel p:last-child { margin-bottom: 0; }
+
+  /* Exercise screen */
+  #exercise .wrap { max-width: 60rem; }
+  .stage {
+    position: relative; background: #000; border-radius: 8px;
+    overflow: hidden; border: 1px solid var(--rule);
+  }
+  canvas { display: block; width: 100%; height: auto; }
+  video { display: none; }
+
+  .cue {
+    text-align: center; font-size: 1.3rem; font-weight: 600;
+    min-height: 2.4rem; margin: 1.25rem 0 0;
+  }
+  .cue.good { color: var(--good); }
+  .cue.warn { color: var(--warn); }
+
+  .count {
+    text-align: center; font-family: var(--mono);
+    font-size: clamp(3.5rem, 14vw, 6rem); font-weight: 700;
+    line-height: 1; margin: 1rem 0 0; font-variant-numeric: tabular-nums;
+  }
+  .count small { font-size: 0.4em; color: var(--ink-soft); font-weight: 600; }
+
+  .loading {
+    display: flex; align-items: center; gap: 0.9rem;
+    color: var(--ink-soft); font-size: 1rem;
+  }
+  .spinner {
+    width: 1.4rem; height: 1.4rem; border-radius: 50%;
+    border: 3px solid var(--rule); border-top-color: var(--accent);
+    animation: spin 0.9s linear infinite; flex: none;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .spinner { animation: none; } }
+
+  .summary { display: grid; gap: 1px; background: var(--rule);
+    border: 1px solid var(--rule); border-radius: 8px; overflow: hidden;
+    grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); margin: 1.5rem 0; }
+  .summary div { background: var(--surface); padding: 1.1rem 1.2rem; }
+  .summary b { display: block; font-family: var(--mono); font-size: 1.9rem; line-height: 1; }
+  .summary span { font-size: 0.8rem; color: var(--ink-soft); }
+
+  .fineprint { font-size: 0.85rem; color: var(--ink-soft); }
+</style>
+</head>
+<body>
+
+<!-- 1. Introduction ------------------------------------------------------ -->
+<section id="intro" class="screen active">
+  <div class="wrap">
+    <p class="eyebrow">Vision Exercise System · early prototype</p>
+    <h1>Sit to Stand</h1>
+    <p class="lead">
+      This uses your webcam to watch you stand up from a chair and sit back
+      down, and counts the repetitions. It takes about five minutes.
+    </p>
+
+    <div class="panel">
+      <h2>Nothing you record is sent anywhere</h2>
+      <p>
+        The camera picture stays in this browser tab. It is never uploaded, never
+        recorded to a file, and never seen by anyone else. Everything — including
+        the counting — happens on your own computer.
+      </p>
+      <p class="fineprint">
+        Close the tab at any time and the camera switches off immediately.
+      </p>
+    </div>
+
+    <h2>What you will need</h2>
+    <ol class="steps">
+      <li>
+        <strong>A sturdy chair without wheels</strong>
+        <span>Ideally with a firm seat. Please do not use a stool or anything that might slide.</span>
+      </li>
+      <li>
+        <strong>Room to stand up safely</strong>
+        <span>Something stable within reach if you would like it. Stop if you feel unsteady.</span>
+      </li>
+      <li>
+        <strong>Space to put the computer about 2–3 metres away</strong>
+        <span>Far enough that your whole body, head to feet, fits on the screen.</span>
+      </li>
+    </ol>
+
+    <div class="buttons">
+      <button id="to-howto">How it works</button>
+    </div>
+  </div>
+</section>
+
+<!-- 2. How to use -------------------------------------------------------- -->
+<section id="howto" class="screen">
+  <div class="wrap">
+    <p class="eyebrow">Step by step</p>
+    <h1>How to use it</h1>
+
+    <ol class="steps">
+      <li>
+        <strong>Allow the camera</strong>
+        <span>Your browser will ask. Nothing works without it, and nothing leaves your computer.</span>
+      </li>
+      <li>
+        <strong>Position the chair and the computer</strong>
+        <span>Sit down facing the screen. The screen will tell you if you need to move back or closer, in large letters you can read from the chair.</span>
+      </li>
+      <li>
+        <strong>Raise one arm to begin</strong>
+        <span>Bend your elbow, hand up beside your head, and hold it there for about a second. A bar fills to show it has seen you. Then put your arm down — you have three seconds before it starts counting.</span>
+      </li>
+      <li>
+        <strong>Stand up and sit down, at your own pace</strong>
+        <span>Stand up fully, pause a moment, then sit back down with control. The number on screen counts each one. There is no rush and no target you have to reach.</span>
+      </li>
+      <li>
+        <strong>Raise both arms to finish</strong>
+        <span>While still sitting. Hold for about a second and it will stop and show your total.</span>
+      </li>
+    </ol>
+
+    <div class="panel">
+      <h2>If something looks wrong</h2>
+      <p>
+        It may miss a repetition, or count one you did not mean. That is what we
+        are trying to find out, so please tell Stuart what happened rather than
+        assuming you did it wrong.
+      </p>
+    </div>
+
+    <div class="buttons">
+      <button id="to-exercise">Start</button>
+      <button id="back-intro" class="quiet">Back</button>
+    </div>
+  </div>
+</section>
+
+<!-- 3. Exercise ---------------------------------------------------------- -->
+<section id="exercise" class="screen">
+  <div class="wrap">
+    <div id="boot" class="panel">
+      <div class="loading">
+        <div class="spinner"></div>
+        <div><strong id="boot-stage">Getting ready…</strong>
+        <div class="fineprint" id="boot-detail">This takes a few moments the first time.</div></div>
+      </div>
+    </div>
+
+    <div class="stage">
+      <video id="video" playsinline muted></video>
+      <canvas id="canvas" width="1280" height="720"></canvas>
+    </div>
+
+    <p class="count" id="count" hidden>0<small id="target"></small></p>
+    <p class="cue" id="cue"></p>
+
+    <div class="buttons">
+      <button id="finish" class="quiet">Finish now</button>
+    </div>
+  </div>
+</section>
+
+<!-- 4. Finished ---------------------------------------------------------- -->
+<section id="done" class="screen">
+  <div class="wrap">
+    <p class="eyebrow">Finished</p>
+    <h1>Well done</h1>
+
+    <div class="summary">
+      <div><b id="done-count">0</b><span>Repetitions</span></div>
+      <div><b id="done-time">0s</b><span>Time</span></div>
+      <div><b id="done-mean">—</b><span>Average each</span></div>
+    </div>
+
+    <p>
+      Thank you. If anything did not work as you expected — a repetition missed,
+      or one counted that you did not do — please tell Stuart. That is the most
+      useful thing you can pass on.
+    </p>
+    <p class="fineprint">
+      Nothing has been saved or sent. Closing this tab leaves no trace of the
+      session.
+    </p>
+
+    <div class="buttons">
+      <button id="again">Do another set</button>
+    </div>
+  </div>
+</section>
+
+<script type="module" src="./try.js"></script>
+</body>
+</html>

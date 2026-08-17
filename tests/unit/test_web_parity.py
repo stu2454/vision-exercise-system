@@ -287,6 +287,15 @@ class TestGestureParity:
         assert "aspectRatio" in read("gestures.js")
         assert "DEFAULT_ASPECT = 16 / 9" in read("geometry.js")
 
+    def test_the_start_gesture_waits_for_the_arms_to_come_down(self):
+        # Both arms raised also satisfies the one-arm start condition, so
+        # without a release guard finishing a recording immediately grants
+        # itself a start and a new one begins by itself.
+        gestures = read("gestures.js")
+        assert "requireRelease" in gestures
+        assert "blocked" in gestures
+        assert "armGestures(true)" in read("app.js")
+
     def test_both_arms_are_required_to_stop(self):
         source = read("gestures.js")
         assert "requiredArms" in source

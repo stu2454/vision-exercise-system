@@ -29,7 +29,7 @@ ideal-condition accuracy.
 |---|---|---|
 | Slow repetitions | ✅ | `sts_slow_001`: 5.5 and 6.4 s repetitions counted correctly. |
 | Fast repetitions | ✅ | 1.8 s repetitions counted correctly. |
-| Partial stand | ❌ | Logic and unit tests exist; never performed by a real participant. |
+| Partial stand | ✅ | Four abandoned stands in `sts_awkward_001`, all now partials. Two were counted as complete before the standing-dwell rule: an abandoned stand held 0.30s where 43 genuine ones all held at least 1.00s. |
 | Pause mid-movement | ❌ | **Known weakness.** Rising is confirmed by upward velocity, so pausing part-way through a rise drops the confirmation and RISING may never be entered. |
 | Hand support / pushing off the thighs | ❌ | No detection of support use at all yet. |
 | Sitting down heavily | ⚠️ | `rapid_descent` exists and is participant-relative, but has never fired on real movement. |
@@ -37,6 +37,7 @@ ideal-condition accuracy.
 | Shuffling forward on the seat first | ❌ | |
 | Extra unrelated movement | ❌ | |
 | Failed attempt — tries and cannot rise | ❌ | |
+| Standing up for a reason other than the exercise | ✅ | **The engine counts movements, not intentions.** A participant who stood up to finish and switch the machine off produced two complete stand-sit cycles, indistinguishable from repetitions. Not an algorithm fault: the exercise ends when the participant signals, so the signal must come before they get up. |
 
 ## 3. Environment and lighting
 
@@ -106,11 +107,11 @@ of them records whether Edge Light was on.
 | Condition | Status | What is known |
 |---|---|---|
 | Camera misreports frame rate | ✅ | Observed: claimed 15 fps, delivered 29.4. Now measured rather than trusted. |
-| Frame rate varies during a session | ⚠️ | 27.9–29.9 fps observed. Filters are timestamp-aware for this reason. |
+| Frame rate varies during a session | ✅ | 27.9–29.9 fps in Python, 74.8 fps in the browser. The calibration window was in frames, so at 74.8 fps it spanned 4.0s rather than 10.0s and an 11.8s stand emptied it. Now in seconds, like the filters. |
 | Tracking lost mid-repetition | ✅ | The repetition is abandoned uncounted, not scored against the participant. |
 | Dropped frames / long gaps | ✅ | Velocity is not computed across a gap beyond `maximum_elapsed_ms`. |
 | Different camera hardware | ❌ | One webcam throughout. |
-| Different runtime | ⚠️ | Browser and Python compared once; the browser negotiated 60 fps where Python got 30. |
+| Different runtime | ✅ | The browser negotiates 30–75 fps where Python gets 30. Higher rates exposed the frame-counted calibration window. Both load the identical model file. |
 
 ---
 

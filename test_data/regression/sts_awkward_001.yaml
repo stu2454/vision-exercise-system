@@ -1,0 +1,46 @@
+case_id: sts_awkward_001
+recording: web_20260817_105243.jsonl
+exercise_id: STS-001
+
+# Sixteen completed sit-to-stand movements, not the fourteen the participant
+# counted. Fourteen were intended as exercise; two more were the participant
+# standing up to finish and switch the machine off, before they signalled the
+# end. Those two are structurally indistinguishable from repetitions -- full
+# standing excursion, held 1.97s and 1.44s, sat down again -- and the engine
+# cannot know the difference. Recording them as false positives would have
+# been recording an algorithm fault that does not exist.
+#
+# The lesson is a protocol one: the exercise ends when the participant
+# signals, so the signal has to come before they get up to leave.
+true_repetitions: 16
+
+# Four abandoned stands: reached partway or touched standing without holding
+# it, then sat back down.
+partial_repetitions: 4
+
+camera_view: frontal
+hand_support_reps: []
+
+# The browser view selector was left unset during the take; the framing is
+# frontal, matching every other case recorded in this room.
+#
+# Recorded in the browser sandbox, which begins recording on the start
+# gesture, so the gesture itself is not in the file.
+use_gestures: false
+
+notes: >
+  The awkward take, and the most valuable case in the set. Sequence: ten good
+  repetitions, two slow ones held 6.0s and 8.0s standing, two abandoned
+  stands, two more slow ones, two more abandoned stands, then two stands to
+  finish. Recorded at 74.8 fps in the browser.
+
+  It exposed two defects. The calibration window was measured in frames, so
+  at 74.8 fps it spanned 4.0s rather than 10.0s, and an 11.8s stand emptied it
+  of every seated sample -- calibrated travel collapsed from 0.114 to 0.040 and
+  abandoned stands cleared the standing threshold. And a repetition required
+  only touching standing height, not holding it: an abandoned stand held for
+  0.30s was counted, where 43 confirmed-genuine repetitions all held at
+  least 1.00s.
+
+  Before those fixes: 18 counted against 16 true. After: 16 and 4 partials,
+  exactly right.

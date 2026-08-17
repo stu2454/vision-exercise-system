@@ -214,7 +214,9 @@ function updateGestures(pose) {
   if (state.awaitingStart) {
     if (state.settleUntilMs === null) {
       const gesture = state.startGesture.update(pose);
-      state.prompt = "RAISE AN ARM TO RECORD";
+      // No instruction while waiting for the arms to come down: asking for a
+      // start gesture that cannot be given yet is worse than saying nothing.
+      state.prompt = gesture.blocked ? "" : "RAISE AN ARM TO RECORD";
       state.promptProgress = gesture.progress;
       if (gesture.triggered) {
         state.settleUntilMs =
@@ -549,13 +551,20 @@ async function endRecording() {
     }
   }
   setStatus(summary, "ok");
-  armGestures();
+  armGestures(true);
 }
 
-/** Re-arm so a second take can be started by gesture without reloading. */
-function armGestures() {
-  state.startGesture.reset();
-  state.stopGesture.reset();
+/**
+ * Re-arm so a second take can be started by gesture without reloading.
+ *
+ * `afterRecording` makes both detectors wait for the arms to come down.
+ * Finishing leaves both arms in the air, which also satisfies the one-arm
+ * start condition, so without it the page asks for a start gesture and then
+ * immediately grants itself one.
+ */
+function armGestures(afterRecording = false) {
+  state.startGesture.reset(afterRecording);
+  state.stopGesture.reset(afterRecording);
   state.awaitingStart = state.gesturesEnabled;
   state.settleUntilMs = null;
   state.prompt = "";

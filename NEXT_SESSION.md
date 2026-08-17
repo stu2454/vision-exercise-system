@@ -3,7 +3,7 @@
 **Open this first.** Paste the prompt below into Claude Code, then read the
 rest if you need reminding where things stand.
 
-Last updated: **16 August 2026**, after Build 6.
+Last updated: **17 August 2026**, after the browser sandbox and the awkward-take fixes.
 
 ---
 
@@ -27,8 +27,8 @@ Builds 0–6 of 9 complete. STS-001 sit-to-stand is recognised end to end.
 | Measure | Standing |
 |---|---|
 | Tests | 348 passing |
-| Regression dataset | 4 cases, 45 repetitions, **one participant** |
-| Count agreement | 95.6% |
+| Regression dataset | 5 cases, 61 repetitions, **one participant** |
+| Count agreement | 96.7% |
 | False repetitions | 0 |
 
 The target in Doc 03 §49 is met. It is met on four clean takes by one person in

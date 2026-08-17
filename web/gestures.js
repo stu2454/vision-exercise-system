@@ -92,18 +92,38 @@ export class ArmRaiseDetector {
     this.reset();
   }
 
-  reset() {
+  /**
+   * Forget progress and allow the gesture to fire again.
+   *
+   * `requireRelease` blocks it until a frame with no raised arm is seen.
+   * Both arms raised also satisfies the one-arm condition, so without this
+   * the stop gesture flows straight into a start: arms still up from
+   * finishing, and a new recording begins by itself.
+   */
+  reset(requireRelease = false) {
     this.sinceMs = null;
     this.fired = false;
+    this.blocked = requireRelease;
   }
 
   update(pose) {
     const now = pose.timestamp_ms;
     const sides = raisedArmSides(pose, this.config);
 
+    if (this.blocked) {
+      if (sides.length === 0) this.blocked = false;
+      return {
+        raised: false, side: null, heldMs: 0, progress: 0,
+        triggered: false, blocked: true,
+      };
+    }
+
     if (sides.length < this.requiredArms) {
       this.sinceMs = null;
-      return { raised: false, side: null, heldMs: 0, progress: 0, triggered: false };
+      return {
+        raised: false, side: null, heldMs: 0, progress: 0,
+        triggered: false, blocked: false,
+      };
     }
 
     if (this.sinceMs === null) this.sinceMs = now;
@@ -122,6 +142,7 @@ export class ArmRaiseDetector {
       heldMs,
       progress,
       triggered,
+      blocked: false,
     };
   }
 }
